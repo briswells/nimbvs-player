@@ -20,6 +20,8 @@ struct BookDetailView: View {
     @State private var isStartingPlayback = false
     @State private var showToast = false
     @State private var toastMessage = ""
+    @State private var showSyncPrompt = false
+    @State private var pendingRemoteProgress: MediaProgressResponse?
 
     // MARK: - Body
 
@@ -46,8 +48,28 @@ struct BookDetailView: View {
         }
         .task {
             await viewModel.loadDetails(book: book, serverService: serverService)
+            await checkRemoteProgress()
         }
         .toast(isPresented: $showToast, message: toastMessage, icon: "server.rack")
+        .alert("Sync Progress from Other Device?", isPresented: $showSyncPrompt) {
+            Button("Sync") {
+                if let remote = pendingRemoteProgress {
+                    progressService.applyRemoteProgress(remote, to: book, modelContext: modelContext)
+                    toastMessage = "Progress synced"
+                    showToast = true
+                }
+                pendingRemoteProgress = nil
+            }
+            Button("Keep Local", role: .cancel) {
+                pendingRemoteProgress = nil
+            }
+        } message: {
+            if let remote = pendingRemoteProgress {
+                let pct = Int(remote.progress * 100)
+                let mins = Int(remote.currentTime) / 60
+                Text("Another device has progress at \(pct)% (\(mins) min). Use that position?")
+            }
+        }
     }
 
     // MARK: - Cover Section
@@ -323,6 +345,33 @@ struct BookDetailView: View {
         .padding(.horizontal, NimbusTheme.Dimensions.paddingSmall)
         .background(NimbusTheme.Colors.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: NimbusTheme.Dimensions.smallCornerRadius))
+    }
+
+    // MARK: - Remote Progress Check
+
+    private func checkRemoteProgress() async {
+        guard let remote = await progressService.fetchRemoteProgress(
+            book: book,
+            serverService: serverService
+        ) else { return }
+
+        let localTime = book.progress?.currentTime ?? 0
+        let localUpdate = book.progress?.lastUpdated ?? .distantPast
+
+        if localTime == 0 && !remote.isFinished && remote.currentTime > 0 {
+            // No local progress — auto-sync from remote
+            progressService.applyRemoteProgress(remote, to: book, modelContext: modelContext)
+            toastMessage = "Progress synced from server"
+            showToast = true
+        } else if localTime > 0 {
+            // Local progress exists — check if remote is newer
+            // lastUpdate is in milliseconds
+            let remoteDate = Date(timeIntervalSince1970: remote.lastUpdate / 1000)
+            if remoteDate > localUpdate && abs(remote.currentTime - localTime) > 30 {
+                pendingRemoteProgress = remote
+                showSyncPrompt = true
+            }
+        }
     }
 
     // MARK: - Playback
