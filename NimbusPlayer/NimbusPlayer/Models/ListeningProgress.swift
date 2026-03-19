@@ -58,11 +58,11 @@ final class ListeningProgress {
     /// - Parameters:
     ///   - currentTime: The new playback position in seconds.
     ///   - duration: The total duration of the book in seconds.
-    func update(currentTime: TimeInterval, duration: TimeInterval) {
+    func update(currentTime: TimeInterval, duration: TimeInterval, completionThreshold: Double = 1.0) {
         self.currentTime = currentTime
         self.totalDuration = duration
         self.progress = duration > 0 ? currentTime / duration : 0
-        self.isFinished = duration > 0 && progress >= 0.99
+        self.isFinished = duration > 0 && progress >= completionThreshold
         self.lastUpdated = Date()
         self.needsSync = true
     }

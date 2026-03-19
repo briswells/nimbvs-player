@@ -16,6 +16,7 @@ final class ProgressService {
     private var syncTimer: Timer?
     private var localSaveTimer: Timer?
     private let keychain = KeychainService()
+    private var completionThreshold: Double = 1.0
 
     // MARK: - Tracking Lifecycle
 
@@ -28,7 +29,8 @@ final class ProgressService {
     /// - Parameters:
     ///   - playerService: The audio player whose position is tracked.
     ///   - modelContext: The SwiftData context used for local persistence.
-    func startTracking(playerService: AudioPlayerService, modelContext: ModelContext) {
+    func startTracking(playerService: AudioPlayerService, modelContext: ModelContext, completionThreshold: Double = 1.0) {
+        self.completionThreshold = completionThreshold
         stopTracking()
 
         localSaveTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
@@ -67,7 +69,7 @@ final class ProgressService {
         guard playerService.duration > 0 else { return }
 
         if let progress = book.progress {
-            progress.update(currentTime: playerService.currentTime, duration: playerService.duration)
+            progress.update(currentTime: playerService.currentTime, duration: playerService.duration, completionThreshold: completionThreshold)
             progress.playbackSpeed = playerService.playbackSpeed
             progress.activeSessionId = playerService.sessionId
             progress.activeSessionServerId = playerService.sessionServerId
