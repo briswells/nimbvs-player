@@ -342,6 +342,8 @@ struct BookDetailView: View {
                     return
                 }
             }
+            toastMessage = "No server available for this book"
+            showToast = true
             isStartingPlayback = false
             return
         }
@@ -379,7 +381,10 @@ struct BookDetailView: View {
                 }
             }
         } catch {
-            // Playback failed
+            await MainActor.run {
+                toastMessage = "Playback failed: \(error.localizedDescription)"
+                showToast = true
+            }
         }
     }
 }
