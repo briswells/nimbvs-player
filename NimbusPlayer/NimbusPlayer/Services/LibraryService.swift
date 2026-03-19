@@ -109,8 +109,11 @@ final class LibraryService {
                     author: item.authorName ?? ""
                 )
 
+                // Only merge with an existing entry if it came from a DIFFERENT server.
+                // Two items on the same server are always distinct books.
                 if let index = mergedBooks.firstIndex(where: {
                     BookMatcher.areMatching($0.identity, identity)
+                    && !$0.serverItems.contains(where: { $0.server.id == server.id })
                 }) {
                     mergedBooks[index].serverItems.append(
                         (server: server, item: item, libraryId: item.libraryId)
