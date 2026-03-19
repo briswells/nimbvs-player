@@ -69,7 +69,7 @@ extension PlaybackSessionRequest {
         PlaybackSessionRequest(
             deviceInfo: DeviceInfo(
                 deviceId: deviceId,
-                clientName: "Nimbus Player",
+                clientName: "Nimbvs Player",
                 clientVersion: appVersion,
                 manufacturer: "Apple",
                 model: UIDevice.current.model,
