@@ -30,6 +30,7 @@ final class LibraryService {
     ///   - servers: The list of active servers to fetch from.
     ///   - serverService: A closure that builds an `APIClient` for a given server.
     ///   - modelContext: The SwiftData model context for persistence.
+    @MainActor
     func refreshLibrary(
         servers: [Server],
         serverService: (Server) -> APIClient?,
@@ -38,8 +39,8 @@ final class LibraryService {
         isLoading = true
         lastError = nil
 
+        // Fetch from network (runs off main actor automatically for async calls)
         var serverItems: [(Server, [LibraryItemResponse])] = []
-
         for server in servers {
             guard let client = serverService(server) else { continue }
             do {
@@ -50,6 +51,7 @@ final class LibraryService {
             }
         }
 
+        // Dedup and persist on main actor (safe for SwiftData + @Observable)
         let mergedBooks = deduplicateItems(serverItems)
         persistBooks(mergedBooks, modelContext: modelContext)
 
