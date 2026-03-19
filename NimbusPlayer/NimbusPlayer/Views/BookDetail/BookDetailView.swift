@@ -377,6 +377,13 @@ struct BookDetailView: View {
 
     // MARK: - Download
 
+    private var hasUnreachableServers: Bool {
+        book.serverMappings.allSatisfy { mapping in
+            guard let serverId = mapping.server?.id else { return true }
+            return serverService.serverStatuses[serverId] != .connected
+        }
+    }
+
     private var isBookDownloaded: Bool {
         downloadService.isBookDownloaded(bookId: book.id)
     }
@@ -460,8 +467,10 @@ struct BookDetailView: View {
             downloadService: downloadService,
             startTime: book.progress?.currentTime
         )
-        toastMessage = "Playing offline"
-        showToast = true
+        if hasUnreachableServers {
+            toastMessage = "Playing offline"
+            showToast = true
+        }
     }
 
     private func attemptPlayback(client: APIClient, mapping: ServerBookMapping, serverId: UUID) async {
