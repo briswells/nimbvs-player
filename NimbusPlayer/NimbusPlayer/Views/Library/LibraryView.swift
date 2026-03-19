@@ -30,7 +30,7 @@ struct LibraryView: View {
                     if viewModel.groupMode == .allBooks {
                         continueListeningSection
                     }
-                    librarySection
+                    libraryContent
                 }
                 .padding(.bottom, 100)
             }
@@ -38,7 +38,11 @@ struct LibraryView: View {
             .navigationTitle("Library")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if viewModel.groupMode == .allBooks {
+                        sortMenu
+                        gridToggleButton
+                    }
                     groupModeMenu
                 }
             }
@@ -93,6 +97,7 @@ struct LibraryView: View {
         if !inProgressBooks.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 sectionHeader("Continue Listening")
+                    .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 16) {
@@ -109,25 +114,22 @@ struct LibraryView: View {
         }
     }
 
-    // MARK: - Library Section
+    // MARK: - Library Content
 
-    private var librarySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header row
-            HStack {
-                sectionHeader(viewModel.groupMode.displayName)
-                Spacer()
-                if viewModel.groupMode == .allBooks {
-                    sortMenu
-                    gridToggleButton
-                }
-            }
-            .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
-
-            if viewModel.groupMode == .allBooks {
-                allBooksContent
+    @ViewBuilder
+    private var libraryContent: some View {
+        if viewModel.groupMode == .allBooks {
+            allBooksContent
+        } else {
+            let groups = viewModel.groups(from: books)
+            if groups.isEmpty {
+                ContentUnavailableView(
+                    "No Groups",
+                    systemImage: "rectangle.stack",
+                    description: Text("No books have this metadata.")
+                )
             } else {
-                GroupListView(groups: viewModel.groups(from: books))
+                GroupListView(groups: groups)
             }
         }
     }
