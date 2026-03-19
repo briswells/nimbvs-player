@@ -321,6 +321,11 @@ final class APIClient {
         try await request(AuthorizeResponse.self, method: "POST", path: "/api/authorize")
     }
 
+    /// Fetches the current user's profile including all media progress.
+    func getMe() async throws -> UserResponse {
+        try await request(UserResponse.self, method: "GET", path: "/api/me")
+    }
+
     // MARK: - URL Builders
 
     /// Returns a streaming URL for the given content URL path, with the authentication token as a query parameter.
