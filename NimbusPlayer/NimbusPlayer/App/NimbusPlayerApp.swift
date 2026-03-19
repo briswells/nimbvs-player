@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UIKit
 
 @main
 struct NimbusPlayerApp: App {
@@ -12,6 +13,10 @@ struct NimbusPlayerApp: App {
     @State private var libraryService = LibraryService()
 
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        configureGlobalAppearance()
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -44,6 +49,24 @@ struct NimbusPlayerApp: App {
         case .light: return .light
         case .system: return nil
         }
+    }
+
+    private func configureGlobalAppearance() {
+        // Set List/Form backgrounds to our navy theme in dark mode
+        let navyBackground = UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0x1a / 255.0, green: 0x1a / 255.0, blue: 0x2e / 255.0, alpha: 1)
+                : .systemGroupedBackground
+        }
+        let navyRowBackground = UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0x23 / 255.0, green: 0x23 / 255.0, blue: 0x44 / 255.0, alpha: 1)
+                : .secondarySystemGroupedBackground
+        }
+
+        UITableView.appearance().backgroundColor = navyBackground
+        UICollectionView.appearance().backgroundColor = navyBackground
+        UITableViewCell.appearance().backgroundColor = navyRowBackground
     }
 
     private func handleScenePhase(_ phase: ScenePhase) {

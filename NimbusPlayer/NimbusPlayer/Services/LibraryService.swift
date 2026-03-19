@@ -184,14 +184,16 @@ final class LibraryService {
                 book = newBook
             }
 
-            // Reconcile server mappings
+            // Reconcile server mappings — use libraryItemId alone to avoid
+            // SwiftData lazy-loading issues with the server relationship
+            let hadMappings = !book.serverMappings.isEmpty
             for (index, serverItem) in merged.serverItems.enumerated() {
                 let server = serverItem.server
                 let item = serverItem.item
                 let libraryId = serverItem.libraryId
 
                 let existingMapping = book.serverMappings.first {
-                    $0.server?.id == server.id && $0.libraryItemId == item.id
+                    $0.libraryItemId == item.id
                 }
 
                 if let mapping = existingMapping {
@@ -210,7 +212,7 @@ final class LibraryService {
                         bitrate: item.totalBitrate.map { Int($0) },
                         format: item.audioFormat,
                         fileSize: item.totalSize,
-                        isPreferred: index == 0 && book.serverMappings.isEmpty
+                        isPreferred: index == 0 && !hadMappings
                     )
                     modelContext.insert(mapping)
                 }
