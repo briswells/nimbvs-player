@@ -50,6 +50,7 @@ final class AppState {
         static let downloadOverCellular = "downloadOverCellular"
         static let autoRemoveFinishedDownloads = "autoRemoveFinishedDownloads"
         static let appearanceMode = "appearanceMode"
+        static let completionThreshold = "completionThreshold"
     }
 
     private let defaults: UserDefaults
@@ -84,6 +85,11 @@ final class AppState {
         didSet { defaults.set(appearanceMode.rawValue, forKey: Keys.appearanceMode) }
     }
 
+    /// Percentage (0.0–1.0) at which a book is considered finished. Default 1.0 (100%).
+    var completionThreshold: Double {
+        didSet { defaults.set(completionThreshold, forKey: Keys.completionThreshold) }
+    }
+
     // MARK: - Init
 
     init(defaults: UserDefaults = .standard) {
@@ -106,5 +112,8 @@ final class AppState {
 
         let modeString = defaults.string(forKey: Keys.appearanceMode) ?? AppearanceMode.system.rawValue
         self.appearanceMode = AppearanceMode(rawValue: modeString) ?? .system
+
+        let threshold = defaults.double(forKey: Keys.completionThreshold)
+        self.completionThreshold = threshold > 0 ? threshold : 1.0
     }
 }

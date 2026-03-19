@@ -42,6 +42,15 @@ struct SettingsView: View {
                         Text("5s").tag(5)
                         Text("10s").tag(10)
                     }
+
+                    HStack {
+                        Text("Completion Threshold")
+                        Spacer()
+                        Text("\(Int(appState.completionThreshold * 100))%")
+                            .foregroundStyle(NimbusTheme.Colors.textSecondary)
+                    }
+                    Slider(value: $state.completionThreshold, in: 0.90...1.0, step: 0.01)
+                        .tint(NimbusTheme.Colors.accentPink)
                 }
 
                 Section("Downloads") {

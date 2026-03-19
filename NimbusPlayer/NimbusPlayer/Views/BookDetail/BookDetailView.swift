@@ -494,7 +494,7 @@ struct BookDetailView: View {
                     serverService: serverService,
                     startTime: book.progress?.currentTime
                 )
-                progressService.startTracking(playerService: playerService, modelContext: modelContext)
+                progressService.startTracking(playerService: playerService, modelContext: modelContext, completionThreshold: appState.completionThreshold)
 
                 if mapping.id != book.preferredMapping?.id {
                     toastMessage = "Playing from \(mapping.server?.displayName ?? "alternate server")"
