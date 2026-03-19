@@ -22,6 +22,7 @@ struct BookDetailView: View {
     @State private var toastMessage = ""
     @State private var showSyncPrompt = false
     @State private var pendingRemoteProgress: MediaProgressResponse?
+    @State private var showNowPlaying = false
 
     // MARK: - Body
 
@@ -69,6 +70,9 @@ struct BookDetailView: View {
                 let mins = Int(remote.currentTime) / 60
                 Text("Another device has progress at \(pct)% (\(mins) min). Use that position?")
             }
+        }
+        .fullScreenCover(isPresented: $showNowPlaying) {
+            NowPlayingView()
         }
     }
 
@@ -229,7 +233,11 @@ struct BookDetailView: View {
         HStack(spacing: NimbusTheme.Dimensions.paddingMedium) {
             // Play / Continue button
             Button {
-                Task { await startPlayback() }
+                if playerService.currentBook?.id == book.id {
+                    showNowPlaying = true
+                } else {
+                    Task { await startPlayback() }
+                }
             } label: {
                 HStack(spacing: 8) {
                     if isStartingPlayback || playerService.isBuffering {
