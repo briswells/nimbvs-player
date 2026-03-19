@@ -227,6 +227,59 @@ final class ProgressService {
         try? modelContext.save()
     }
 
+    // MARK: - Fetch Remote Progress
+
+    /// Fetches the most recent progress from all servers for a book WITHOUT applying it.
+    /// Returns the remote progress if found, or nil.
+    func fetchRemoteProgress(
+        book: CachedBook,
+        serverService: ServerService
+    ) async -> MediaProgressResponse? {
+        var latestProgress: MediaProgressResponse?
+        var latestTimestamp: TimeInterval = 0
+
+        for mapping in book.serverMappings {
+            guard let server = mapping.server,
+                  let client = serverService.client(for: server.id) else { continue }
+
+            do {
+                let remote = try await client.getProgress(libraryItemId: mapping.libraryItemId)
+                if remote.lastUpdate > latestTimestamp {
+                    latestTimestamp = remote.lastUpdate
+                    latestProgress = remote
+                }
+            } catch {
+                continue
+            }
+        }
+
+        return latestProgress
+    }
+
+    /// Applies a remote progress response to the local book.
+    func applyRemoteProgress(
+        _ remote: MediaProgressResponse,
+        to book: CachedBook,
+        modelContext: ModelContext
+    ) {
+        if let progress = book.progress {
+            progress.update(currentTime: remote.currentTime, duration: remote.duration)
+            progress.isFinished = remote.isFinished
+            progress.needsSync = false
+        } else {
+            let progress = ListeningProgress(
+                book: book,
+                currentTime: remote.currentTime,
+                totalDuration: remote.duration
+            )
+            progress.isFinished = remote.isFinished
+            progress.needsSync = false
+            modelContext.insert(progress)
+            book.progress = progress
+        }
+        try? modelContext.save()
+    }
+
     // MARK: - Flush Pending Syncs
 
     /// Pushes all locally-modified progress records to their corresponding servers.
