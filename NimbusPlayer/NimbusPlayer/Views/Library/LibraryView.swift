@@ -5,19 +5,13 @@ import SwiftUI
 
 struct LibraryView: View {
 
-    // MARK: - Environment
-
     @Environment(ServerService.self) private var serverService
     @Environment(AppState.self) private var appState
     @Environment(LibraryService.self) private var libraryService
     @Environment(\.modelContext) private var modelContext
 
-    // MARK: - Queries
-
     @Query private var books: [CachedBook]
     @Query(filter: #Predicate<Server> { $0.isActive }) private var servers: [Server]
-
-    // MARK: - State
 
     @State private var viewModel = LibraryViewModel()
 
@@ -25,14 +19,29 @@ struct LibraryView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    if viewModel.groupMode == .allBooks {
-                        continueListeningSection
+            ZStack(alignment: .trailing) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 24) {
+                            if viewModel.groupMode == .allBooks {
+                                continueListeningSection
+                            }
+                            libraryContent
+                        }
+                        .padding(.bottom, 100)
                     }
-                    libraryContent
+                    .overlay(alignment: .trailing) {
+                        if let letters = activeSectionLetters, letters.count > 1 {
+                            SectionIndexView(
+                                letters: letters,
+                                idPrefix: sectionIdPrefix,
+                                scrollProxy: proxy
+                            )
+                            .padding(.trailing, 2)
+                            .padding(.vertical, 60)
+                        }
+                    }
                 }
-                .padding(.bottom, 100)
             }
             .background(NimbusTheme.Colors.backgroundDark)
             .navigationTitle("Library")
@@ -63,6 +72,46 @@ struct LibraryView: View {
         }
     }
 
+    // MARK: - Section Index Helpers
+
+    /// Returns the active section letters for the current view, or nil if no index should show.
+    private var activeSectionLetters: [String]? {
+        if viewModel.groupMode != .allBooks {
+            let groups = viewModel.groups(from: books)
+            let view = GroupListView(groups: groups)
+            let letters = view.sectionLetters
+            return letters.isEmpty ? nil : letters
+        }
+        if viewModel.sortOption == .title || viewModel.sortOption == .author {
+            let sorted = viewModel.sortedBooks(books)
+            let letters = sectionLettersForBooks(sorted)
+            return letters.isEmpty ? nil : letters
+        }
+        return nil
+    }
+
+    private var sectionIdPrefix: String {
+        viewModel.groupMode != .allBooks ? "group-" : "books-"
+    }
+
+    private func sectionLettersForBooks(_ books: [CachedBook]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for book in books {
+            let key = letterForBook(book)
+            if seen.insert(key).inserted {
+                result.append(key)
+            }
+        }
+        return result.sorted()
+    }
+
+    private func letterForBook(_ book: CachedBook) -> String {
+        let text = viewModel.sortOption == .author ? book.author : book.title
+        let first = String(text.prefix(1)).uppercased()
+        return first.first?.isLetter == true ? first : "#"
+    }
+
     // MARK: - Group Mode Menu
 
     private var groupModeMenu: some View {
@@ -89,7 +138,7 @@ struct LibraryView: View {
         }
     }
 
-    // MARK: - Continue Listening Section
+    // MARK: - Continue Listening
 
     @ViewBuilder
     private var continueListeningSection: some View {
@@ -121,54 +170,120 @@ struct LibraryView: View {
         if viewModel.groupMode == .allBooks {
             allBooksContent
         } else {
-            let groups = viewModel.groups(from: books)
-            if groups.isEmpty {
-                ContentUnavailableView(
-                    "No Groups",
-                    systemImage: "rectangle.stack",
-                    description: Text("No books have this metadata.")
-                )
-            } else {
-                GroupListView(groups: groups)
-            }
+            GroupListView(groups: viewModel.groups(from: books))
         }
     }
 
-    // MARK: - All Books Content
+    // MARK: - All Books
 
     @ViewBuilder
     private var allBooksContent: some View {
         let sortedBooks = viewModel.sortedBooks(books)
+        let showSections = viewModel.sortOption == .title || viewModel.sortOption == .author
 
         if viewModel.isGridView {
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 110))],
-                spacing: 20
-            ) {
-                ForEach(sortedBooks) { book in
-                    NavigationLink(value: book) {
-                        BookGridItem(book: book)
-                    }
-                    .buttonStyle(.plain)
-                }
+            if showSections {
+                sectionedGrid(sortedBooks)
+            } else {
+                plainGrid(sortedBooks)
             }
-            .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
         } else {
-            LazyVStack(spacing: 0) {
-                ForEach(sortedBooks) { book in
-                    NavigationLink(value: book) {
-                        BookListRow(book: book)
-                    }
-                    .buttonStyle(.plain)
+            if showSections {
+                sectionedList(sortedBooks)
+            } else {
+                plainList(sortedBooks)
+            }
+        }
+    }
 
-                    if book.id != sortedBooks.last?.id {
-                        Divider()
-                            .background(NimbusTheme.Colors.divider)
+    // MARK: - Plain Grid/List (no sections)
+
+    private func plainGrid(_ books: [CachedBook]) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 110))], spacing: 20) {
+            ForEach(books) { book in
+                NavigationLink(value: book) {
+                    BookGridItem(book: book)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
+    }
+
+    private func plainList(_ books: [CachedBook]) -> some View {
+        LazyVStack(spacing: 0) {
+            ForEach(books) { book in
+                NavigationLink(value: book) {
+                    BookListRow(book: book)
+                }
+                .buttonStyle(.plain)
+
+                if book.id != books.last?.id {
+                    Divider().background(NimbusTheme.Colors.divider)
+                }
+            }
+        }
+        .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
+    }
+
+    // MARK: - Sectioned Grid/List (with letter headers)
+
+    private func sectionedGrid(_ books: [CachedBook]) -> some View {
+        let letters = sectionLettersForBooks(books)
+        return LazyVStack(alignment: .leading, spacing: 12) {
+            ForEach(letters, id: \.self) { letter in
+                let sectionBooks = booksForLetter(letter, in: books)
+                if !sectionBooks.isEmpty {
+                    sectionHeader(letter)
+                        .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
+                        .padding(.top, 8)
+                        .id("books-\(letter)")
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 110))], spacing: 20) {
+                        ForEach(sectionBooks) { book in
+                            NavigationLink(value: book) {
+                                BookGridItem(book: book)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
+                }
+            }
+        }
+    }
+
+    private func sectionedList(_ books: [CachedBook]) -> some View {
+        let letters = sectionLettersForBooks(books)
+        return LazyVStack(spacing: 0) {
+            ForEach(letters, id: \.self) { letter in
+                let sectionBooks = booksForLetter(letter, in: books)
+                if !sectionBooks.isEmpty {
+                    sectionHeader(letter)
+                        .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
+                        .padding(.top, 16)
+                        .padding(.bottom, 4)
+                        .id("books-\(letter)")
+
+                    ForEach(sectionBooks) { book in
+                        NavigationLink(value: book) {
+                            BookListRow(book: book)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
+
+                        if book.id != sectionBooks.last?.id {
+                            Divider().background(NimbusTheme.Colors.divider)
+                                .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
+                        }
                     }
                 }
             }
-            .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
         }
+    }
+
+    private func booksForLetter(_ letter: String, in books: [CachedBook]) -> [CachedBook] {
+        books.filter { letterForBook($0) == letter }
     }
 
     // MARK: - Sort Menu
