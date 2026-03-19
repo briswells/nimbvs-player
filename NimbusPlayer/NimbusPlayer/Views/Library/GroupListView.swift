@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Displays a list of book groups with an alphabetical section index on the right.
+/// Displays a list of book groups with alphabetical section headers.
 struct GroupListView: View {
     let groups: [LibraryViewModel.BookGroup]
 
@@ -12,68 +12,38 @@ struct GroupListView: View {
                 description: Text("No books have this metadata.")
             )
         } else {
-            ZStack(alignment: .trailing) {
-                ScrollViewReader { proxy in
-                    LazyVStack(spacing: 0) {
-                        ForEach(sectionLetters, id: \.self) { letter in
-                            let sectionGroups = groupsForLetter(letter)
-                            if !sectionGroups.isEmpty {
-                                // Section header
-                                HStack {
-                                    Text(letter)
-                                        .font(.caption)
-                                        .fontWeight(.bold)
-                                        .foregroundStyle(NimbusTheme.Colors.textTertiary)
-                                    Spacer()
-                                }
-                                .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
-                                .padding(.top, 16)
-                                .padding(.bottom, 4)
-                                .id(letter)
-
-                                ForEach(sectionGroups) { group in
-                                    NavigationLink(value: group) {
-                                        GroupRowView(group: group)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
-                                }
-                            }
-                        }
+            ForEach(sectionLetters, id: \.self) { letter in
+                let sectionGroups = groupsForLetter(letter)
+                if !sectionGroups.isEmpty {
+                    HStack {
+                        Text(letter)
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundStyle(NimbusTheme.Colors.textTertiary)
+                        Spacer()
                     }
-                    .onChange(of: scrollToLetter) { _, letter in
-                        if let letter {
-                            withAnimation(.easeOut(duration: 0.15)) {
-                                proxy.scrollTo(letter, anchor: .top)
-                            }
+                    .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
+                    .padding(.top, 16)
+                    .padding(.bottom, 4)
+                    .id("group-\(letter)")
+
+                    ForEach(sectionGroups) { group in
+                        NavigationLink(value: group) {
+                            GroupRowView(group: group)
                         }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
                     }
                 }
-
-                // Section index
-                SectionIndexView(
-                    letters: activeLetters,
-                    onSelect: { letter in
-                        scrollToLetter = letter
-                    }
-                )
-                .padding(.trailing, 2)
             }
         }
     }
 
-    // MARK: - State
-
-    @State private var scrollToLetter: String?
-
-    // MARK: - Computed
-
-    private var sectionLetters: [String] {
+    var sectionLetters: [String] {
         var seen = Set<String>()
         var result: [String] = []
         for group in groups {
-            let letter = String(group.name.prefix(1)).uppercased()
-            let key = letter.first?.isLetter == true ? letter : "#"
+            let key = letterFor(group.name)
             if seen.insert(key).inserted {
                 result.append(key)
             }
@@ -81,29 +51,23 @@ struct GroupListView: View {
         return result.sorted()
     }
 
-    private var activeLetters: [String] {
-        sectionLetters
+    private func groupsForLetter(_ letter: String) -> [LibraryViewModel.BookGroup] {
+        groups.filter { letterFor($0.name) == letter }
     }
 
-    private func groupsForLetter(_ letter: String) -> [LibraryViewModel.BookGroup] {
-        groups.filter { group in
-            let first = String(group.name.prefix(1)).uppercased()
-            if letter == "#" {
-                return first.first?.isLetter != true
-            }
-            return first == letter
-        }
+    private func letterFor(_ name: String) -> String {
+        let first = String(name.prefix(1)).uppercased()
+        return first.first?.isLetter == true ? first : "#"
     }
 }
 
-// MARK: - Section Index
+// MARK: - Section Index Overlay
 
 /// The A-Z scrubber on the right edge, like iOS Contacts.
 struct SectionIndexView: View {
     let letters: [String]
-    let onSelect: (String) -> Void
-
-    @GestureState private var isDragging = false
+    let idPrefix: String
+    let scrollProxy: ScrollViewProxy
 
     var body: some View {
         VStack(spacing: 1) {
@@ -118,17 +82,20 @@ struct SectionIndexView: View {
         .padding(.horizontal, 2)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(NimbusTheme.Colors.surfaceOverlay)
+                .fill(NimbusTheme.Colors.backgroundDark.opacity(0.8))
         )
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    let totalHeight = CGFloat(letters.count) * 14 + 8
+                    guard !letters.isEmpty else { return }
+                    let itemHeight: CGFloat = 15
+                    let totalHeight = CGFloat(letters.count) * itemHeight + 8
                     let fraction = max(0, min(1, value.location.y / totalHeight))
-                    let index = min(letters.count - 1, Int(fraction * CGFloat(letters.count)))
-                    if index >= 0 && index < letters.count {
-                        onSelect(letters[index])
+                    let index = min(letters.count - 1, max(0, Int(fraction * CGFloat(letters.count))))
+                    let target = "\(idPrefix)\(letters[index])"
+                    withAnimation(.easeOut(duration: 0.1)) {
+                        scrollProxy.scrollTo(target, anchor: .top)
                     }
                 }
         )
