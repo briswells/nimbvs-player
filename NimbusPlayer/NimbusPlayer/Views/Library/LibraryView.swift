@@ -18,6 +18,7 @@ struct LibraryView: View {
 
     @State private var viewModel = LibraryViewModel()
     @State private var isInitialLoad = false
+    @State private var hasLoadedOnce = false
 
     /// When offline, only show downloaded books.
     private var visibleBooks: [CachedBook] {
@@ -97,16 +98,18 @@ struct LibraryView: View {
             }
             .task(id: servers.count) {
                 guard !servers.isEmpty else { return }
+                guard !hasLoadedOnce else { return }
+                hasLoadedOnce = true
+
                 serverService.loadClients(servers: servers)
                 await serverService.validateConnections(servers: servers)
 
                 if books.isEmpty {
-                    // First load — show loading overlay
                     isInitialLoad = true
                     await refreshLibrary()
                     isInitialLoad = false
-                } else if !hasUnreachableServers {
-                    // Background refresh — update library and progress silently
+                } else {
+                    // Background refresh on first launch
                     await refreshLibrary()
                 }
             }
