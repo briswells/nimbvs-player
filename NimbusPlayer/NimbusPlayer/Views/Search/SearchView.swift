@@ -25,13 +25,11 @@ struct SearchView: View {
                                 ForEach(viewModel.recentSearches, id: \.self) { search in
                                     Button {
                                         viewModel.query = search
-                                        Task {
-                                            await viewModel.search(
-                                                servers: servers.filter(\.isActive),
-                                                serverService: serverService,
-                                                allBooks: books
-                                            )
-                                        }
+                                        viewModel.searchImmediate(
+                                            servers: servers,
+                                            serverService: serverService,
+                                            allBooks: books
+                                        )
                                     } label: {
                                         Label(search, systemImage: "clock")
                                             .foregroundStyle(NimbusTheme.Colors.textPrimary)
@@ -65,25 +63,21 @@ struct SearchView: View {
             .navigationTitle("Search")
             .searchable(text: $viewModel.query, prompt: "Title, author, narrator...")
             .onSubmit(of: .search) {
-                Task {
-                    await viewModel.search(
-                        servers: servers.filter(\.isActive),
-                        serverService: serverService,
-                        allBooks: books
-                    )
-                }
+                viewModel.searchImmediate(
+                    servers: servers,
+                    serverService: serverService,
+                    allBooks: books
+                )
             }
             .onChange(of: viewModel.query) { _, newValue in
                 if newValue.isEmpty {
                     viewModel.clearSearch()
                 } else {
-                    Task {
-                        await viewModel.search(
-                            servers: servers.filter(\.isActive),
-                            serverService: serverService,
-                            allBooks: books
-                        )
-                    }
+                    viewModel.searchDebounced(
+                        servers: servers,
+                        serverService: serverService,
+                        allBooks: books
+                    )
                 }
             }
             .navigationDestination(for: CachedBook.self) { book in
