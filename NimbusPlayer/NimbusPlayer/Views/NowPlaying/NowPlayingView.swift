@@ -266,14 +266,21 @@ struct NowPlayingView: View {
             Button {
                 playerService.togglePlayPause()
             } label: {
-                Image(systemName: playerService.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title)
-                    .foregroundStyle(.white)
-                    .frame(width: 64, height: 64)
-                    .background(
-                        Circle()
-                            .fill(NimbusTheme.Gradients.accent)
-                    )
+                Group {
+                    if playerService.isBuffering {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Image(systemName: playerService.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.title)
+                    }
+                }
+                .foregroundStyle(.white)
+                .frame(width: 64, height: 64)
+                .background(
+                    Circle()
+                        .fill(NimbusTheme.Gradients.accent)
+                )
             }
 
             Spacer()
