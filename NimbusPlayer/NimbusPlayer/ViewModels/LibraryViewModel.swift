@@ -123,9 +123,9 @@ final class LibraryViewModel {
         case .series:
             return groupBySeries(books)
         case .authors:
-            return groupByKeyPath(books, keyPath: \.author)
+            return groupBySplitField(books, label: "author") { $0.author }
         case .narrators:
-            return groupByNarrator(books)
+            return groupBySplitField(books, label: "narrator") { $0.narrator ?? "" }
         }
     }
 
@@ -147,29 +147,21 @@ final class LibraryViewModel {
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    private func groupByKeyPath(_ books: [CachedBook], keyPath: KeyPath<CachedBook, String>) -> [BookGroup] {
+    /// Groups books by a comma-separated field (author or narrator).
+    /// A book with "Author A, Author B" appears under both "Author A" and "Author B".
+    private func groupBySplitField(_ books: [CachedBook], label: String, field: (CachedBook) -> String) -> [BookGroup] {
         var dict: [String: [CachedBook]] = [:]
         for book in books {
-            let key = book[keyPath: keyPath]
-            guard !key.isEmpty else { continue }
-            dict[key, default: []].append(book)
+            let raw = field(book)
+            guard !raw.isEmpty else { continue }
+            let names = raw.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+            for name in names where !name.isEmpty {
+                dict[name, default: []].append(book)
+            }
         }
         return dict.map { name, books in
             let sorted = books.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-            return BookGroup(id: "\(keyPath):\(name)", name: name, books: sorted)
-        }
-        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    private func groupByNarrator(_ books: [CachedBook]) -> [BookGroup] {
-        var dict: [String: [CachedBook]] = [:]
-        for book in books {
-            guard let narrator = book.narrator, !narrator.isEmpty else { continue }
-            dict[narrator, default: []].append(book)
-        }
-        return dict.map { name, books in
-            let sorted = books.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-            return BookGroup(id: "narrator:\(name)", name: name, books: sorted)
+            return BookGroup(id: "\(label):\(name)", name: name, books: sorted)
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
