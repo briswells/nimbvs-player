@@ -15,12 +15,12 @@ struct SearchView: View {
         return servers.allSatisfy { serverService.serverStatuses[$0.id] != .connected }
     }
 
-    /// When offline, only show downloaded books in search.
-    private var searchableBooks: [CachedBook] {
+    /// When offline, filter search results to only downloaded books.
+    private var filteredResults: [CachedBook] {
         if isOffline {
-            return books.filter { downloadService.isBookDownloaded(bookId: $0.id) }
+            return viewModel.results.filter { downloadService.isBookDownloaded(bookId: $0.id) }
         }
-        return books
+        return viewModel.results
     }
 
     var body: some View {
@@ -28,7 +28,7 @@ struct SearchView: View {
             Group {
                 if viewModel.query.isEmpty {
                     recentSearchesView
-                } else if viewModel.results.isEmpty && viewModel.seriesResults.isEmpty && !viewModel.isSearching {
+                } else if filteredResults.isEmpty && viewModel.seriesResults.isEmpty && !viewModel.isSearching {
                     ContentUnavailableView.search(text: viewModel.query)
                 } else {
                     searchResultsList
@@ -42,7 +42,7 @@ struct SearchView: View {
                 viewModel.searchImmediate(
                     servers: servers,
                     serverService: serverService,
-                    allBooks: searchableBooks, modelContext: modelContext
+                    allBooks: books, modelContext: modelContext
                 )
             }
             .onChange(of: viewModel.query) { _, newValue in
@@ -52,7 +52,7 @@ struct SearchView: View {
                     viewModel.searchDebounced(
                         servers: servers,
                         serverService: serverService,
-                        allBooks: searchableBooks, modelContext: modelContext
+                        allBooks: books, modelContext: modelContext
                     )
                 }
             }
@@ -78,7 +78,7 @@ struct SearchView: View {
                             viewModel.searchImmediate(
                                 servers: servers,
                                 serverService: serverService,
-                                allBooks: searchableBooks, modelContext: modelContext
+                                allBooks: books, modelContext: modelContext
                             )
                         } label: {
                             Label(search, systemImage: "clock")
@@ -130,7 +130,7 @@ struct SearchView: View {
                 }
 
                 // Book results
-                if !viewModel.results.isEmpty {
+                if !filteredResults.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("BOOKS")
                             .font(.caption)
@@ -140,13 +140,13 @@ struct SearchView: View {
                             .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
 
                         LazyVStack(spacing: 0) {
-                            ForEach(viewModel.results) { book in
+                            ForEach(filteredResults) { book in
                                 NavigationLink(value: book) {
                                     BookListRow(book: book)
                                 }
                                 .buttonStyle(.plain)
 
-                                if book.id != viewModel.results.last?.id {
+                                if book.id != filteredResults.last?.id {
                                     Divider()
                                         .background(NimbusTheme.Colors.divider)
                                 }
