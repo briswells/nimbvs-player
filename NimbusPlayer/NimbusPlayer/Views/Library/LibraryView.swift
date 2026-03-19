@@ -8,6 +8,7 @@ struct LibraryView: View {
     @Environment(ServerService.self) private var serverService
     @Environment(AppState.self) private var appState
     @Environment(LibraryService.self) private var libraryService
+    @Environment(ProgressService.self) private var progressService
     @Environment(\.modelContext) private var modelContext
 
     @Query private var books: [CachedBook]
@@ -339,6 +340,12 @@ struct LibraryView: View {
             serverService: { server in
                 serverService.client(for: server.id)
             },
+            modelContext: modelContext
+        )
+        // Sync all progress from servers so "Continue Listening" populates immediately
+        await progressService.syncAllProgress(
+            servers: servers,
+            serverService: serverService,
             modelContext: modelContext
         )
     }
