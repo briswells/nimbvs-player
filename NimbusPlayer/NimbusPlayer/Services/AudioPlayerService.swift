@@ -37,6 +37,7 @@ final class AudioPlayerService {
     private var tracks: [AudioTrackResponse] = []
     private var timeObserver: Any?
     private var pausedAt: Date?
+    private var statusObservation: NSKeyValueObservation?
 
     /// Weak reference to the server service, set externally to avoid a strong retain cycle.
     private weak var _serverService: ServerService?
@@ -268,11 +269,19 @@ final class AudioPlayerService {
         guard let client = serverService.client(for: serverId),
               let url = client.streamingURL(contentUrl: track.contentUrl) else { return }
 
+        isBuffering = true
         let item = AVPlayerItem(url: url)
         if player == nil {
             player = AVPlayer(playerItem: item)
         } else {
             player?.replaceCurrentItem(with: item)
+        }
+
+        // Observe buffering state via timeControlStatus
+        statusObservation = player?.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+            Task { @MainActor in
+                self?.isBuffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+            }
         }
 
         // Observe end of track to advance to the next one

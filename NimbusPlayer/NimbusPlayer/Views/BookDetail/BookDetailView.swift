@@ -232,9 +232,14 @@ struct BookDetailView: View {
                 Task { await startPlayback() }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: playButtonIcon)
-                        .font(.body.weight(.semibold))
-                    Text(playButtonLabel)
+                    if isStartingPlayback || playerService.isBuffering {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Image(systemName: playButtonIcon)
+                            .font(.body.weight(.semibold))
+                    }
+                    Text(isStartingPlayback ? "Loading..." : playButtonLabel)
                         .font(.body.weight(.semibold))
                 }
                 .foregroundStyle(.white)
