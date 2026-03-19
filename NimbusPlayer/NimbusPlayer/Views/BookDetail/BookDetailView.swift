@@ -38,7 +38,7 @@ struct BookDetailView: View {
                 chapterListSection
             }
             .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
-            .padding(.bottom, NimbusTheme.Dimensions.paddingLarge)
+            .padding(.bottom, 140)
         }
         .background(NimbusTheme.Gradients.background)
         .navigationTitle(book.title)

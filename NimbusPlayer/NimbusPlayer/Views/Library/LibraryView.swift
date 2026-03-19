@@ -28,7 +28,7 @@ struct LibraryView: View {
                             }
                             libraryContent
                         }
-                        .padding(.bottom, 100)
+                        .padding(.bottom, 140)
                     }
                     .overlay(alignment: .trailing) {
                         if let letters = activeSectionLetters, letters.count > 1 {
