@@ -434,8 +434,8 @@ struct BookDetailView: View {
     private func startPlayback() async {
         isStartingPlayback = true
 
-        // If offline or server unreachable, play from downloaded files
-        if !networkMonitor.isConnected && isBookDownloaded {
+        // Always prefer local files if downloaded — faster and works offline
+        if isBookDownloaded {
             playOffline()
             isStartingPlayback = false
             return
@@ -444,13 +444,7 @@ struct BookDetailView: View {
         guard let mapping = book.preferredMapping,
               let serverId = mapping.server?.id,
               let client = serverService.client(for: serverId) else {
-            // No client — try offline if downloaded
-            if isBookDownloaded {
-                playOffline()
-                isStartingPlayback = false
-                return
-            }
-            toastMessage = "No server available for this book"
+            toastMessage = "No server available and book not downloaded"
             showToast = true
             isStartingPlayback = false
             return

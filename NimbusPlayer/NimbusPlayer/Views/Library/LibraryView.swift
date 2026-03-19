@@ -10,6 +10,7 @@ struct LibraryView: View {
     @Environment(LibraryService.self) private var libraryService
     @Environment(ProgressService.self) private var progressService
     @Environment(NetworkMonitor.self) private var networkMonitor
+    @Environment(DownloadService.self) private var downloadService
     @Environment(\.modelContext) private var modelContext
 
     @Query private var books: [CachedBook]
@@ -17,6 +18,14 @@ struct LibraryView: View {
 
     @State private var viewModel = LibraryViewModel()
     @State private var isInitialLoad = false
+
+    /// When offline, only show downloaded books.
+    private var visibleBooks: [CachedBook] {
+        if hasUnreachableServers {
+            return books.filter { downloadService.isBookDownloaded(bookId: $0.id) }
+        }
+        return books
+    }
 
     // MARK: - Body
 
@@ -27,7 +36,7 @@ struct LibraryView: View {
                     ScrollViewReader { proxy in
                         ScrollView {
                             VStack(alignment: .leading, spacing: 24) {
-                                if !networkMonitor.isConnected {
+                                if hasUnreachableServers {
                                     offlineBanner
                                 }
                                 if viewModel.groupMode == .allBooks {
@@ -87,8 +96,11 @@ struct LibraryView: View {
                 await refreshLibrary()
             }
             .task(id: servers.count) {
-                // Fires on initial appear AND when servers change (after onboarding adds one)
                 guard !servers.isEmpty else { return }
+                // Always check server reachability on appear
+                serverService.loadClients(servers: servers)
+                await serverService.validateConnections(servers: servers)
+                // Only fetch library if empty (first load / after onboarding)
                 if books.isEmpty {
                     isInitialLoad = true
                     await refreshLibrary()
@@ -103,13 +115,13 @@ struct LibraryView: View {
     /// Returns the active section letters for the current view, or nil if no index should show.
     private var activeSectionLetters: [String]? {
         if viewModel.groupMode != .allBooks {
-            let groups = viewModel.groups(from: books)
+            let groups = viewModel.groups(from: visibleBooks)
             let view = GroupListView(groups: groups)
             let letters = view.sectionLetters
             return letters.isEmpty ? nil : letters
         }
         if viewModel.sortOption == .title || viewModel.sortOption == .author {
-            let sorted = viewModel.sortedBooks(books)
+            let sorted = viewModel.sortedBooks(visibleBooks)
             let letters = sectionLettersForBooks(sorted)
             return letters.isEmpty ? nil : letters
         }
@@ -168,7 +180,7 @@ struct LibraryView: View {
 
     @ViewBuilder
     private var continueListeningSection: some View {
-        let inProgressBooks = viewModel.continueListeningBooks(books)
+        let inProgressBooks = viewModel.continueListeningBooks(visibleBooks)
         if !inProgressBooks.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 sectionHeader("Continue Listening")
@@ -196,7 +208,7 @@ struct LibraryView: View {
         if viewModel.groupMode == .allBooks {
             allBooksContent
         } else {
-            GroupListView(groups: viewModel.groups(from: books))
+            GroupListView(groups: viewModel.groups(from: visibleBooks))
         }
     }
 
@@ -204,7 +216,7 @@ struct LibraryView: View {
 
     @ViewBuilder
     private var allBooksContent: some View {
-        let sortedBooks = viewModel.sortedBooks(books)
+        let sortedBooks = viewModel.sortedBooks(visibleBooks)
         let showSections = viewModel.sortOption == .title || viewModel.sortOption == .author
 
         if viewModel.isGridView {
@@ -351,11 +363,19 @@ struct LibraryView: View {
 
     // MARK: - Helpers
 
+    private var hasUnreachableServers: Bool {
+        guard !servers.isEmpty else { return false }
+        let result = servers.allSatisfy { server in
+            serverService.serverStatuses[server.id] != .connected
+        }
+        return result
+    }
+
     private var offlineBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "wifi.slash")
                 .font(.caption)
-            Text("You're offline — downloaded books are still playable")
+            Text("Server unreachable — downloaded books are still playable")
                 .font(.caption)
         }
         .foregroundStyle(.white)
@@ -376,8 +396,9 @@ struct LibraryView: View {
     }
 
     private func refreshLibrary() async {
-        // Ensure clients are loaded (needed after onboarding adds a server)
+        // Ensure clients are loaded and check server reachability
         serverService.loadClients(servers: servers)
+        await serverService.validateConnections(servers: servers)
 
         await viewModel.refresh(
             servers: servers,
