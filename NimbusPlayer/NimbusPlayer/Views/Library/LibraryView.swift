@@ -3,9 +3,6 @@ import SwiftUI
 
 // MARK: - LibraryView
 
-/// The main library browsing view showing a "Continue Listening" section and the full book collection.
-///
-/// Supports grid and list layouts, multiple sort options, pull-to-refresh, and navigation to book details.
 struct LibraryView: View {
 
     // MARK: - Environment
@@ -30,7 +27,9 @@ struct LibraryView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    continueListeningSection
+                    if viewModel.groupMode == .allBooks {
+                        continueListeningSection
+                    }
                     librarySection
                 }
                 .padding(.bottom, 100)
@@ -38,8 +37,16 @@ struct LibraryView: View {
             .background(NimbusTheme.Colors.backgroundDark)
             .navigationTitle("Library")
             .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    groupModeMenu
+                }
+            }
             .navigationDestination(for: CachedBook.self) { book in
                 BookDetailView(book: book)
+            }
+            .navigationDestination(for: LibraryViewModel.BookGroup.self) { group in
+                GroupDetailView(group: group)
             }
             .refreshable {
                 await refreshLibrary()
@@ -49,6 +56,32 @@ struct LibraryView: View {
                     await refreshLibrary()
                 }
             }
+        }
+    }
+
+    // MARK: - Group Mode Menu
+
+    private var groupModeMenu: some View {
+        Menu {
+            ForEach(LibraryViewModel.GroupMode.allCases, id: \.self) { mode in
+                Button {
+                    withAnimation { viewModel.groupMode = mode }
+                } label: {
+                    Label {
+                        Text(mode.displayName)
+                    } icon: {
+                        if viewModel.groupMode == mode {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: viewModel.groupMode.icon)
+                .font(.body)
+                .foregroundStyle(viewModel.groupMode == .allBooks
+                    ? NimbusTheme.Colors.textSecondary
+                    : NimbusTheme.Colors.accentPink)
         }
     }
 
@@ -80,47 +113,59 @@ struct LibraryView: View {
 
     private var librarySection: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // Header row
             HStack {
-                sectionHeader("Library")
-
+                sectionHeader(viewModel.groupMode.displayName)
                 Spacer()
-
-                sortMenu
-                gridToggleButton
+                if viewModel.groupMode == .allBooks {
+                    sortMenu
+                    gridToggleButton
+                }
             }
             .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
 
-            let sortedBooks = viewModel.sortedBooks(books)
-
-            if viewModel.isGridView {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 110))],
-                    spacing: 20
-                ) {
-                    ForEach(sortedBooks) { book in
-                        NavigationLink(value: book) {
-                            BookGridItem(book: book)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
+            if viewModel.groupMode == .allBooks {
+                allBooksContent
             } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(sortedBooks) { book in
-                        NavigationLink(value: book) {
-                            BookListRow(book: book)
-                        }
-                        .buttonStyle(.plain)
+                GroupListView(groups: viewModel.groups(from: books))
+            }
+        }
+    }
 
-                        if book.id != sortedBooks.last?.id {
-                            Divider()
-                                .background(NimbusTheme.Colors.divider)
-                        }
+    // MARK: - All Books Content
+
+    @ViewBuilder
+    private var allBooksContent: some View {
+        let sortedBooks = viewModel.sortedBooks(books)
+
+        if viewModel.isGridView {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 110))],
+                spacing: 20
+            ) {
+                ForEach(sortedBooks) { book in
+                    NavigationLink(value: book) {
+                        BookGridItem(book: book)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
+        } else {
+            LazyVStack(spacing: 0) {
+                ForEach(sortedBooks) { book in
+                    NavigationLink(value: book) {
+                        BookListRow(book: book)
+                    }
+                    .buttonStyle(.plain)
+
+                    if book.id != sortedBooks.last?.id {
+                        Divider()
+                            .background(NimbusTheme.Colors.divider)
                     }
                 }
-                .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
             }
+            .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
         }
     }
 
@@ -163,7 +208,6 @@ struct LibraryView: View {
 
     // MARK: - Helpers
 
-    /// Returns a styled uppercase section header label.
     private func sectionHeader(_ title: String) -> some View {
         Text(title.uppercased())
             .font(.caption)
@@ -172,7 +216,6 @@ struct LibraryView: View {
             .tracking(1.2)
     }
 
-    /// Refreshes the library by fetching books from all active servers.
     private func refreshLibrary() async {
         await viewModel.refresh(
             servers: servers,
@@ -182,13 +225,4 @@ struct LibraryView: View {
             modelContext: modelContext
         )
     }
-}
-
-// MARK: - Preview
-
-#Preview {
-    LibraryView()
-        .environment(ServerService())
-        .environment(AppState())
-        .environment(LibraryService())
 }
