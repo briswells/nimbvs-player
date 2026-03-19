@@ -4,11 +4,13 @@ import SwiftUI
 @main
 struct NimbusPlayerApp: App {
     @State private var appState = AppState()
+    @State private var audioPlayerService = AudioPlayerService()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(appState)
+                .environment(audioPlayerService)
                 .preferredColorScheme(appState.appearanceMode.colorScheme)
         }
         .modelContainer(for: [
