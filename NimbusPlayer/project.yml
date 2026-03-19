@@ -23,7 +23,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nimbusplayer.app
-        INFOPLIST_KEY_CFBundleDisplayName: "Nimbus Player"
+        INFOPLIST_KEY_CFBundleDisplayName: "Nimbvs Player"
         INFOPLIST_KEY_UIRequiresFullScreen: "YES"
   NimbusPlayerTests:
     type: bundle.unit-test
