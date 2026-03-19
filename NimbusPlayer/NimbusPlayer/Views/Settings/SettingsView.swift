@@ -72,6 +72,8 @@ struct SettingsView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(NimbusTheme.Colors.backgroundGrouped)
             .navigationTitle("Settings")
         }
     }

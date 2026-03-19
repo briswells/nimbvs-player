@@ -40,6 +40,8 @@ struct DownloadsView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(NimbusTheme.Colors.backgroundDark)
             .navigationTitle("Downloads")
         }
     }

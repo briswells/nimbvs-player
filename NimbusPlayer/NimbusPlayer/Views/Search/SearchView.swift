@@ -60,6 +60,8 @@ struct SearchView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(NimbusTheme.Colors.backgroundDark)
             .navigationTitle("Search")
             .searchable(text: $viewModel.query, prompt: "Title, author, narrator...")
             .onSubmit(of: .search) {

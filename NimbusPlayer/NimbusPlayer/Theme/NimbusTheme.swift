@@ -1,18 +1,45 @@
 import SwiftUI
+import UIKit
 
 enum NimbusTheme {
 
     // MARK: - Colors
 
     enum Colors {
-        /// Deep navy background: #1a1a2e
-        static let backgroundDark = Color(red: 0x1a / 255.0, green: 0x1a / 255.0, blue: 0x2e / 255.0)
+        /// Primary background — custom navy in dark, system background in light
+        static let backgroundDark = Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0x1a / 255.0, green: 0x1a / 255.0, blue: 0x2e / 255.0, alpha: 1)
+                : .systemBackground
+        })
 
-        /// Slightly lighter navy: #16213e
-        static let backgroundMedium = Color(red: 0x16 / 255.0, green: 0x21 / 255.0, blue: 0x3e / 255.0)
+        /// Secondary background — slightly lighter navy in dark, system grouped in light
+        static let backgroundMedium = Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0x16 / 255.0, green: 0x21 / 255.0, blue: 0x3e / 255.0, alpha: 1)
+                : .secondarySystemBackground
+        })
 
-        /// Mid-tone blue: #0f3460
-        static let backgroundLight = Color(red: 0x0f / 255.0, green: 0x34 / 255.0, blue: 0x60 / 255.0)
+        /// Tertiary background — mid-tone blue in dark, tertiary system in light
+        static let backgroundLight = Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0x0f / 255.0, green: 0x34 / 255.0, blue: 0x60 / 255.0, alpha: 1)
+                : .tertiarySystemBackground
+        })
+
+        /// Grouped list/form background
+        static let backgroundGrouped = Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0x1a / 255.0, green: 0x1a / 255.0, blue: 0x2e / 255.0, alpha: 1)
+                : .systemGroupedBackground
+        })
+
+        /// Grouped list/form row background
+        static let backgroundGroupedRow = Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0x23 / 255.0, green: 0x23 / 255.0, blue: 0x44 / 255.0, alpha: 1)
+                : .secondarySystemGroupedBackground
+        })
 
         /// Accent pink: #e94560
         static let accentPink = Color(red: 0xe9 / 255.0, green: 0x45 / 255.0, blue: 0x60 / 255.0)
@@ -21,22 +48,44 @@ enum NimbusTheme {
         static let accentPurple = Color(red: 0x53 / 255.0, green: 0x34 / 255.0, blue: 0x83 / 255.0)
 
         /// Primary text color
-        static let textPrimary = Color.white
+        static let textPrimary = Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark ? .white : .label
+        })
 
-        /// Secondary text color: #8b8fa3
-        static let textSecondary = Color(red: 0.545, green: 0.561, blue: 0.639)
+        /// Secondary text color
+        static let textSecondary = Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.545, green: 0.561, blue: 0.639, alpha: 1)
+                : .secondaryLabel
+        })
 
-        /// Tertiary text color: #6b6f84
-        static let textTertiary = Color(red: 0.420, green: 0.435, blue: 0.522)
+        /// Tertiary text color
+        static let textTertiary = Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.420, green: 0.435, blue: 0.522, alpha: 1)
+                : .tertiaryLabel
+        })
 
-        /// Semi-transparent white overlay for surfaces
-        static let surfaceOverlay = Color.white.opacity(0.06)
+        /// Semi-transparent overlay for surfaces
+        static let surfaceOverlay = Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor.white.withAlphaComponent(0.06)
+                : UIColor.black.withAlphaComponent(0.04)
+        })
 
-        /// Elevated surface color: #232344
-        static let surfaceElevated = Color(red: 0.137, green: 0.137, blue: 0.267)
+        /// Elevated surface color
+        static let surfaceElevated = Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.137, green: 0.137, blue: 0.267, alpha: 1)
+                : .secondarySystemBackground
+        })
 
         /// Divider color
-        static let divider = Color.white.opacity(0.06)
+        static let divider = Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor.white.withAlphaComponent(0.06)
+                : .separator
+        })
     }
 
     // MARK: - Gradients

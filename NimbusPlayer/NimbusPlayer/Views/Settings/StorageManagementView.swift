@@ -38,6 +38,8 @@ struct StorageManagementView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(NimbusTheme.Colors.backgroundGrouped)
         .navigationTitle("Storage")
     }
 
