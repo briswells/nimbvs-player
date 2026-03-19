@@ -434,17 +434,21 @@ struct BookDetailView: View {
     private func startPlayback() async {
         isStartingPlayback = true
 
+        // If offline or server unreachable, play from downloaded files
+        if !networkMonitor.isConnected && isBookDownloaded {
+            playOffline()
+            isStartingPlayback = false
+            return
+        }
+
         guard let mapping = book.preferredMapping,
               let serverId = mapping.server?.id,
               let client = serverService.client(for: serverId) else {
-            // Try fallback servers
-            for otherMapping in book.serverMappings where otherMapping.id != book.preferredMapping?.id {
-                if let sid = otherMapping.server?.id,
-                   let client = serverService.client(for: sid) {
-                    await attemptPlayback(client: client, mapping: otherMapping, serverId: sid)
-                    isStartingPlayback = false
-                    return
-                }
+            // No client — try offline if downloaded
+            if isBookDownloaded {
+                playOffline()
+                isStartingPlayback = false
+                return
             }
             toastMessage = "No server available for this book"
             showToast = true
@@ -454,6 +458,16 @@ struct BookDetailView: View {
 
         await attemptPlayback(client: client, mapping: mapping, serverId: serverId)
         isStartingPlayback = false
+    }
+
+    private func playOffline() {
+        playerService.startOfflinePlayback(
+            book: book,
+            downloadService: downloadService,
+            startTime: book.progress?.currentTime
+        )
+        toastMessage = "Playing offline"
+        showToast = true
     }
 
     private func attemptPlayback(client: APIClient, mapping: ServerBookMapping, serverId: UUID) async {
@@ -485,9 +499,14 @@ struct BookDetailView: View {
                 }
             }
         } catch {
-            await MainActor.run {
-                toastMessage = "Playback failed: \(error.localizedDescription)"
-                showToast = true
+            // Server failed — fall back to offline if downloaded
+            if isBookDownloaded {
+                await MainActor.run { playOffline() }
+            } else {
+                await MainActor.run {
+                    toastMessage = "Playback failed: \(error.localizedDescription)"
+                    showToast = true
+                }
             }
         }
     }
