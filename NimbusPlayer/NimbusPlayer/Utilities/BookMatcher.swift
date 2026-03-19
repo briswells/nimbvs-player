@@ -9,7 +9,7 @@ enum BookMatcher {
         let author: String
     }
 
-    static let similarityThreshold = 0.85
+    static let similarityThreshold = 0.95
 
     static func areMatching(_ a: BookIdentity, _ b: BookIdentity) -> Bool {
         // 1. Exact ASIN match (if both non-empty)
