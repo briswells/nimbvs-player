@@ -116,7 +116,17 @@ final class AudioPlayerService {
         // Create local track entries
         self.localFileURLs = files
         self.tracks = []
-        self.chapters = []
+
+        // Load cached chapters for offline use
+        let chaptersURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Chapters", isDirectory: true)
+            .appendingPathComponent("\(book.id.uuidString).json")
+        if let data = try? Data(contentsOf: chaptersURL),
+           let cached = try? JSONDecoder().decode([ChapterResponse].self, from: data) {
+            self.chapters = cached
+        } else {
+            self.chapters = []
+        }
 
         // Calculate durations by loading each file's metadata
         var offset: Double = 0

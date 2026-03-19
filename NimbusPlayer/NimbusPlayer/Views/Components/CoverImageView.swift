@@ -52,13 +52,29 @@ struct CoverImageView: View {
     // MARK: - Private
 
     private func loadImage() async {
+        let cacheKey = "\(serverId.uuidString)_\(itemId)_\(Int(width))"
+
+        // Try disk cache first (works offline)
+        if let cached = await ImageCacheService.shared.cachedImage(cacheKey: cacheKey) {
+            self.image = cached
+            isLoading = false
+            return
+        }
+
+        // Try any cached size for this item (offline fallback)
+        let anySizeKey = "\(serverId.uuidString)_\(itemId)"
+        if let cached = await ImageCacheService.shared.cachedImageWithPrefix(anySizeKey) {
+            self.image = cached
+            isLoading = false
+            return
+        }
+
+        // Fetch from network
         guard let client = serverService.client(for: serverId),
               let url = client.coverURL(itemId: itemId, width: Int(width * UIScreen.main.scale)) else {
             isLoading = false
             return
         }
-
-        let cacheKey = "\(serverId.uuidString)_\(itemId)_\(Int(width))"
 
         do {
             let loaded = try await ImageCacheService.shared.image(for: url, cacheKey: cacheKey)
