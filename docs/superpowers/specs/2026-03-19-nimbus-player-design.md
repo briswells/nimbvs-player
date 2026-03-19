@@ -61,7 +61,13 @@ Views (SwiftUI)
 - `serverMappings`: [ServerBookMapping]
 - `lastUpdated`: Date
 
-**CachedBook ID generation:** To ensure stable identity across app reinstalls, the UUID is deterministically derived: if ASIN exists, `UUID(name: "asin:{asin}")` (UUID v5); if ISBN, `UUID(name: "isbn:{isbn}")`; otherwise `UUID(name: "title:{normalizedTitle}|author:{normalizedAuthor}")`. This means progress and downloads survive database resets as long as the book can be re-matched.
+**CachedBook ID generation:** To ensure stable identity across app reinstalls, the UUID is deterministically derived using UUID v5 (SHA-1 based) with a fixed app namespace:
+- **Namespace UUID:** `8bcf5e6a-3b2a-4f7d-9c1e-a5d8f2b7c4e1` (Nimbus Player constant)
+- If ASIN exists: `UUIDv5(namespace, "asin:{asin}")`
+- If ISBN exists: `UUIDv5(namespace, "isbn:{isbn}")`
+- Otherwise: `UUIDv5(namespace, "title:{normalizedTitle}|author:{normalizedAuthor}")`
+- Note: Foundation does not provide UUID v5 — implement using `CC_SHA1` or a small helper.
+- This means progress and downloads survive database resets as long as the book can be re-matched.
 
 ### ServerBookMapping
 - `id`: UUID
@@ -126,7 +132,7 @@ Note: Current chapter is derived at display time from `currentTime` and the chap
 - All active servers queried concurrently on app launch and pull-to-refresh
 
 ### Book Deduplication Algorithm
-1. Fetch all library items from all active servers in parallel (paginated at 100 items per page)
+1. Fetch all library items from all active servers in parallel (paginated at 100 items per page, 0-indexed: first page is `page=0`)
 2. For each item, extract: ASIN, ISBN, title, author
 3. Matching priority:
    - **Exact ASIN match** → same book
@@ -162,15 +168,18 @@ Note: Current chapter is derived at display time from `currentTime` and the chap
        "osName": "iOS",
        "osVersion": "<iOS version>"
      },
+     "forceDirectPlay": true,
      "forceTranscode": false,
+     "supportedMimeTypes": ["audio/mpeg", "audio/mp4", "audio/x-m4b", "audio/m4a", "audio/ogg"],
      "mediaPlayer": "AVPlayer"
    }
    ```
+   Note: `forceDirectPlay: true` avoids unnecessary server-side transcoding. `supportedMimeTypes` tells the server which formats AVPlayer can handle natively.
 2. Response is a `PlaybackSession` object containing:
    - `id` — session ID used for all subsequent sync/close calls
    - `audioTracks` array — each with `index`, `startOffset`, `duration`, `contentUrl`, `mimeType`
    - `currentTime`, `duration`, `chapters`, `coverPath`, etc.
-3. The `contentUrl` in audioTracks is a **relative path** (e.g., `/s/item/li_abc123/filename.mp3`)
+3. The `contentUrl` in audioTracks is a **server-relative path** — treat it as opaque (the exact format may vary by server version)
    - Must prepend the server's base URL: `{server.url}{contentUrl}`
    - Must include auth: either `Authorization: Bearer` header or `?token=` query param
    - In multi-server context, always use the URL of the server that owns the session
@@ -179,10 +188,18 @@ Note: Current chapter is derived at display time from `currentTime` and the chap
 ### AVPlayer Management
 - Single `AudioPlayerService` with one shared AVPlayer instance
 - Handles sequential track advancement using the `audioTracks` array from the playback session
-- Streaming URL construction: `{serverBaseUrl}{track.contentUrl}?token={serverToken}`
+- Streaming URL construction: `{serverBaseUrl}{track.contentUrl}?token={serverToken}` (contentUrl is opaque — use as-is from server response)
 - Offline: plays from local file URLs for downloaded books
 - Background audio: AVAudioSession category `.playback`
 - Interruption handling: pause on interruption, resume when ended
+
+### Multi-Track Timeline
+Audiobooks are often split across multiple audio files. Each `audioTrack` has a `startOffset` (seconds from book start) and `duration`.
+
+- **Global timeline:** Maintain a single `currentTime` representing position in the entire book. Map to track-local time: `trackLocalTime = globalTime - track.startOffset`
+- **Track advancement:** Observe `AVPlayerItem` end notification → load next track, begin playback
+- **Seeking across tracks:** On seek to `targetTime`, find track where `startOffset <= targetTime < startOffset + duration`, load that track, seek to `targetTime - track.startOffset`
+- **Progress display:** Always show global time (sum of completed track durations + current track position)
 
 ### Now Playing / Lock Screen / CarPlay
 - `MPNowPlayingInfoCenter`: cover art, title, author, chapter name, elapsed/remaining time
@@ -351,8 +368,8 @@ This is the highest-priority feature. Local-first with server sync.
 | Start playback session | POST | `/api/items/{id}/play` |
 | Sync session | POST | `/api/sessions/open/{id}/sync` |
 | Close session | POST | `/api/sessions/open/{id}/close` |
-| Get progress | GET | `/api/me/progress/{id}` |
-| Update progress | PATCH | `/api/me/progress/{id}` |
+| Get progress | GET | `/api/me/progress/{libraryItemId}` |
+| Update progress | PATCH | `/api/me/progress/{libraryItemId}` |
 | Stream audio | GET | `contentUrl` from AudioTrack objects |
 | Get user info | GET | `/api/me` |
 | Get listening sessions | GET | `/api/me/listening-sessions` |
