@@ -39,7 +39,7 @@ struct GroupDetailView: View {
                 }
                 .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
             }
-            .padding(.bottom, 100)
+            .padding(.bottom, 140)
         }
         .background(NimbusTheme.Colors.backgroundDark)
         .navigationTitle(group.name)
