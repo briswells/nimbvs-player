@@ -19,6 +19,24 @@ enum NimbusTheme {
 
         /// Accent purple: #533483
         static let accentPurple = Color(red: 0x53 / 255.0, green: 0x34 / 255.0, blue: 0x83 / 255.0)
+
+        /// Primary text color
+        static let textPrimary = Color.white
+
+        /// Secondary text color: #8b8fa3
+        static let textSecondary = Color(red: 0.545, green: 0.561, blue: 0.639)
+
+        /// Tertiary text color: #6b6f84
+        static let textTertiary = Color(red: 0.420, green: 0.435, blue: 0.522)
+
+        /// Semi-transparent white overlay for surfaces
+        static let surfaceOverlay = Color.white.opacity(0.06)
+
+        /// Elevated surface color: #232344
+        static let surfaceElevated = Color(red: 0.137, green: 0.137, blue: 0.267)
+
+        /// Divider color
+        static let divider = Color.white.opacity(0.06)
     }
 
     // MARK: - Gradients
@@ -49,6 +67,8 @@ enum NimbusTheme {
     // MARK: - Dimensions
 
     enum Dimensions {
+        static let cornerRadius: CGFloat = 12
+        static let smallCornerRadius: CGFloat = 8
         static let cornerRadiusSmall: CGFloat = 8
         static let cornerRadiusMedium: CGFloat = 12
         static let cornerRadiusLarge: CGFloat = 16
@@ -61,8 +81,14 @@ enum NimbusTheme {
         static let iconSizeMedium: CGFloat = 28
         static let iconSizeLarge: CGFloat = 44
 
+        static let coverThumbnailSize: CGFloat = 52
+        static let coverGridSize: CGFloat = 110
+        static let coverDetailSize: CGFloat = 200
         static let coverArtSmall: CGFloat = 60
         static let coverArtMedium: CGFloat = 120
         static let coverArtLarge: CGFloat = 240
+
+        static let miniPlayerHeight: CGFloat = 64
+        static let tabBarHeight: CGFloat = 56
     }
 }
