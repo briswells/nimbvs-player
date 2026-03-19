@@ -7,6 +7,7 @@ struct SearchView: View {
     @Query private var servers: [Server]
     @Environment(ServerService.self) private var serverService
     @Environment(DownloadService.self) private var downloadService
+    @Environment(\.modelContext) private var modelContext
     @State private var viewModel = SearchViewModel()
 
     private var isOffline: Bool {
@@ -41,7 +42,7 @@ struct SearchView: View {
                 viewModel.searchImmediate(
                     servers: servers,
                     serverService: serverService,
-                    allBooks: searchableBooks
+                    allBooks: searchableBooks, modelContext: modelContext
                 )
             }
             .onChange(of: viewModel.query) { _, newValue in
@@ -51,7 +52,7 @@ struct SearchView: View {
                     viewModel.searchDebounced(
                         servers: servers,
                         serverService: serverService,
-                        allBooks: searchableBooks
+                        allBooks: searchableBooks, modelContext: modelContext
                     )
                 }
             }
@@ -77,7 +78,7 @@ struct SearchView: View {
                             viewModel.searchImmediate(
                                 servers: servers,
                                 serverService: serverService,
-                                allBooks: searchableBooks
+                                allBooks: searchableBooks, modelContext: modelContext
                             )
                         } label: {
                             Label(search, systemImage: "clock")

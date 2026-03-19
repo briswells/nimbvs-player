@@ -97,14 +97,17 @@ struct LibraryView: View {
             }
             .task(id: servers.count) {
                 guard !servers.isEmpty else { return }
-                // Always check server reachability on appear
                 serverService.loadClients(servers: servers)
                 await serverService.validateConnections(servers: servers)
-                // Only fetch library if empty (first load / after onboarding)
+
                 if books.isEmpty {
+                    // First load — show loading overlay
                     isInitialLoad = true
                     await refreshLibrary()
                     isInitialLoad = false
+                } else if !hasUnreachableServers {
+                    // Background refresh — update library and progress silently
+                    await refreshLibrary()
                 }
             }
         }
