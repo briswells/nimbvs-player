@@ -5,6 +5,8 @@ struct GroupDetailView: View {
     let group: LibraryViewModel.BookGroup
     @Environment(ServerService.self) private var serverService
 
+    private var isSeries: Bool { group.id.hasPrefix("series:") }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -25,7 +27,7 @@ struct GroupDetailView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(group.books) { book in
                         NavigationLink(value: book) {
-                            GroupBookRow(book: book)
+                            GroupBookRow(book: book, showSequence: isSeries)
                         }
                         .buttonStyle(.plain)
 
@@ -51,12 +53,13 @@ struct GroupDetailView: View {
 /// A row within the group detail view showing sequence, cover, title, and progress.
 struct GroupBookRow: View {
     let book: CachedBook
+    var showSequence: Bool = true
     @Environment(ServerService.self) private var serverService
 
     var body: some View {
         HStack(spacing: 12) {
-            // Sequence badge
-            if let seq = book.seriesSequence, !seq.isEmpty {
+            // Sequence badge (series only)
+            if showSequence, let seq = book.seriesSequence, !seq.isEmpty {
                 Text("#\(seq)")
                     .font(.caption)
                     .fontWeight(.bold)
