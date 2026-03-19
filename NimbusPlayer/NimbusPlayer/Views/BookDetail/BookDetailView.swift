@@ -14,6 +14,9 @@ struct BookDetailView: View {
     @Environment(ServerService.self) private var serverService
     @Environment(AudioPlayerService.self) private var playerService
     @Environment(ProgressService.self) private var progressService
+    @Environment(DownloadService.self) private var downloadService
+    @Environment(NetworkMonitor.self) private var networkMonitor
+    @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = BookDetailViewModel()
     @State private var showServerComparison = false
@@ -260,15 +263,27 @@ struct BookDetailView: View {
 
             // Download button
             Button {
-                // Placeholder — download functionality
+                Task { await startDownload() }
             } label: {
-                Image(systemName: "arrow.down.circle")
-                    .font(.title2)
-                    .foregroundStyle(NimbusTheme.Colors.textSecondary)
-                    .frame(width: 50, height: 50)
-                    .background(NimbusTheme.Colors.surfaceOverlay)
-                    .clipShape(RoundedRectangle(cornerRadius: NimbusTheme.Dimensions.cornerRadius))
+                Group {
+                    if isBookDownloaded {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.green)
+                    } else if isDownloading {
+                        ProgressView()
+                            .tint(NimbusTheme.Colors.accentPink)
+                    } else {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.title2)
+                            .foregroundStyle(NimbusTheme.Colors.textSecondary)
+                    }
+                }
+                .frame(width: 50, height: 50)
+                .background(NimbusTheme.Colors.surfaceOverlay)
+                .clipShape(RoundedRectangle(cornerRadius: NimbusTheme.Dimensions.cornerRadius))
             }
+            .disabled(isBookDownloaded || isDownloading)
         }
     }
 
@@ -358,6 +373,33 @@ struct BookDetailView: View {
         .padding(.horizontal, NimbusTheme.Dimensions.paddingSmall)
         .background(NimbusTheme.Colors.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: NimbusTheme.Dimensions.smallCornerRadius))
+    }
+
+    // MARK: - Download
+
+    private var isBookDownloaded: Bool {
+        downloadService.isBookDownloaded(bookId: book.id)
+    }
+
+    private var isDownloading: Bool {
+        book.downloads.contains { $0.state == .downloading || $0.state == .queued }
+    }
+
+    private func startDownload() async {
+        do {
+            try await downloadService.startDownload(
+                book: book,
+                serverService: serverService,
+                networkMonitor: networkMonitor,
+                allowCellular: appState.downloadOverCellular,
+                modelContext: modelContext
+            )
+            toastMessage = "Download started"
+            showToast = true
+        } catch {
+            toastMessage = error.localizedDescription
+            showToast = true
+        }
     }
 
     // MARK: - Remote Progress Check
