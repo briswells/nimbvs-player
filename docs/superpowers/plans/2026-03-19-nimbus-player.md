@@ -6,7 +6,7 @@
 
 **Architecture:** MVVM with service layer. SwiftUI views bind to @Observable ViewModels which call into singleton Services. SwiftData for persistence, AVFoundation for audio, URLSession for networking. Zero third-party dependencies.
 
-**Tech Stack:** Swift 6, SwiftUI, SwiftData, AVFoundation, MediaPlayer, Network framework, Security framework (Keychain)
+**Tech Stack:** Swift 5.9, SwiftUI, SwiftData, AVFoundation, MediaPlayer, Network framework, Security framework (Keychain)
 
 **Spec:** `docs/superpowers/specs/2026-03-19-nimbus-player-design.md`
 
@@ -142,7 +142,7 @@ options:
   generateEmptyDirectories: true
 settings:
   base:
-    SWIFT_VERSION: "6.0"
+    SWIFT_VERSION: "5.9"
     TARGETED_DEVICE_FAMILY: "1"
     INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
     INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
@@ -228,21 +228,52 @@ import SwiftUI
 
 @Observable
 final class AppState {
-    var isAuthenticated = false
-    var hasCompletedOnboarding = false
+    var isAuthenticated: Bool {
+        get { UserDefaults.standard.bool(forKey: "isAuthenticated") }
+        set { UserDefaults.standard.set(newValue, forKey: "isAuthenticated") }
+    }
+    var hasCompletedOnboarding: Bool {
+        get { UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") }
+        set { UserDefaults.standard.set(newValue, forKey: "hasCompletedOnboarding") }
+    }
 
-    // Global user settings
-    var defaultPlaybackSpeed: Double = 1.0
-    var skipForwardDuration: TimeInterval = 30
-    var skipBackwardDuration: TimeInterval = 30
-    var resumeRewindSeconds: TimeInterval = 5
-    var downloadOverCellular: Bool = false
-    var autoRemoveFinishedDownloads: Bool = false
-    var appearanceMode: AppearanceMode = .system
+    // Global user settings — all persisted via UserDefaults
+    var defaultPlaybackSpeed: Double {
+        get { UserDefaults.standard.double(forKey: "defaultPlaybackSpeed").nonZero ?? 1.0 }
+        set { UserDefaults.standard.set(newValue, forKey: "defaultPlaybackSpeed") }
+    }
+    var skipForwardDuration: TimeInterval {
+        get { UserDefaults.standard.double(forKey: "skipForwardDuration").nonZero ?? 30 }
+        set { UserDefaults.standard.set(newValue, forKey: "skipForwardDuration") }
+    }
+    var skipBackwardDuration: TimeInterval {
+        get { UserDefaults.standard.double(forKey: "skipBackwardDuration").nonZero ?? 30 }
+        set { UserDefaults.standard.set(newValue, forKey: "skipBackwardDuration") }
+    }
+    var resumeRewindSeconds: TimeInterval {
+        get { UserDefaults.standard.double(forKey: "resumeRewindSeconds").nonZero ?? 5 }
+        set { UserDefaults.standard.set(newValue, forKey: "resumeRewindSeconds") }
+    }
+    var downloadOverCellular: Bool {
+        get { UserDefaults.standard.bool(forKey: "downloadOverCellular") }
+        set { UserDefaults.standard.set(newValue, forKey: "downloadOverCellular") }
+    }
+    var autoRemoveFinishedDownloads: Bool {
+        get { UserDefaults.standard.bool(forKey: "autoRemoveFinishedDownloads") }
+        set { UserDefaults.standard.set(newValue, forKey: "autoRemoveFinishedDownloads") }
+    }
+    var appearanceMode: AppearanceMode {
+        get { AppearanceMode(rawValue: UserDefaults.standard.string(forKey: "appearanceMode") ?? "system") ?? .system }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "appearanceMode") }
+    }
 
     enum AppearanceMode: String, CaseIterable {
         case dark, light, system
     }
+}
+
+private extension Double {
+    var nonZero: Double? { self == 0 ? nil : self }
 }
 ```
 
@@ -1357,6 +1388,7 @@ struct PlaybackSessionRequest: Codable {
         let osVersion: String
     }
 
+    // Note: This file needs `import UIKit` at the top
     static func defaultRequest(deviceId: String, appVersion: String) -> PlaybackSessionRequest {
         var systemInfo = utsname()
         uname(&systemInfo)
@@ -2234,10 +2266,12 @@ final class LibraryService {
 
         for library in bookLibraries {
             var page = 0
+            var libraryItemCount = 0
             while true {
                 let response = try await client.getLibraryItems(libraryId: library.id, page: page, limit: 100)
                 allItems.append(contentsOf: response.results)
-                if allItems.count >= response.total || response.results.isEmpty {
+                libraryItemCount += response.results.count
+                if libraryItemCount >= response.total || response.results.isEmpty {
                     break
                 }
                 page += 1
@@ -2755,7 +2789,7 @@ struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var viewModel = LibraryViewModel()
-    @State private var libraryService = LibraryService()
+    @Environment(LibraryService.self) private var libraryService
 
     private let gridColumns = [
         GridItem(.adaptive(minimum: 110), spacing: 16)
@@ -3964,7 +3998,9 @@ struct NowPlayingView: View {
     }
 }
 
-// AirPlay route picker
+// AirPlay route picker — requires AVKit import at top of file
+import AVKit
+
 struct AirPlayButton: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let picker = AVRoutePickerView()
@@ -4890,15 +4926,57 @@ final class SearchViewModel {
         isSearching = true
         saveRecentSearch(query)
 
-        // Search locally first (fast)
+        // Search locally first (fast, instant results)
         let lowercaseQuery = query.lowercased()
         let localResults = allBooks.filter {
             $0.title.lowercased().contains(lowercaseQuery) ||
             $0.author.lowercased().contains(lowercaseQuery) ||
             ($0.narrator?.lowercased().contains(lowercaseQuery) ?? false)
         }
-
         results = localResults
+
+        // Also search servers for items not yet cached
+        await withTaskGroup(of: [LibraryItemResponse].self) { group in
+            for server in servers where server.isActive {
+                guard let client = serverService.client(for: server.id) else { continue }
+                // Get all book libraries for this server
+                group.addTask {
+                    var items: [LibraryItemResponse] = []
+                    guard let libraries = try? await client.getLibraries() else { return [] }
+                    for lib in libraries where lib.mediaType == "book" {
+                        if let response = try? await client.searchLibrary(libraryId: lib.id, query: self.query) {
+                            items.append(contentsOf: response.book?.map(\.libraryItem) ?? [])
+                        }
+                    }
+                    return items
+                }
+            }
+            // Merge server results with local (dedup by matching existing CachedBooks)
+            for await serverItems in group {
+                for item in serverItems {
+                    let alreadyInResults = results.contains { book in
+                        BookMatcher.areMatching(
+                            BookMatcher.BookIdentity(asin: book.asin, isbn: book.isbn, title: book.title, author: book.author),
+                            BookMatcher.BookIdentity(asin: item.asin, isbn: item.isbn, title: item.title, author: item.authorName)
+                        )
+                    }
+                    if !alreadyInResults {
+                        // Check if it exists in allBooks but wasn't matched by local search
+                        if let existing = allBooks.first(where: { b in
+                            BookMatcher.areMatching(
+                                BookMatcher.BookIdentity(asin: b.asin, isbn: b.isbn, title: b.title, author: b.author),
+                                BookMatcher.BookIdentity(asin: item.asin, isbn: item.isbn, title: item.title, author: item.authorName)
+                            )
+                        }) {
+                            results.append(existing)
+                        }
+                        // Note: truly new items from server search require creating a CachedBook,
+                        // which is deferred — the library refresh will pick them up.
+                    }
+                }
+            }
+        }
+
         isSearching = false
     }
 
@@ -5240,8 +5318,7 @@ Expected: `** BUILD SUCCEEDED **`
 - [ ] **Step 5: Commit**
 
 ```bash
-git add NimbusPlayer/NimbusPlayer/Views/Settings/ \
-       NimbusPlayer/NimbusPlayer/ViewModels/SettingsViewModel.swift
+git add NimbusPlayer/NimbusPlayer/Views/Settings/
 git commit -m "feat: add Settings tab with server management, playback, downloads, appearance"
 ```
 
@@ -5545,3 +5622,14 @@ git commit -m "feat: complete Nimbus Player integration with all services and li
 **Total: 25 tasks, ~100 steps**
 
 Each task produces a working, committable increment. Tests cover the critical logic (UUID v5, Jaro-Winkler, BookMatcher, API client, Keychain). UI views are verified by building successfully.
+
+---
+
+## Deferred Features (v1.1)
+
+These spec features are intentionally deferred to keep v1 focused and shippable:
+
+1. **Mid-session token expiry handling** — The spec describes a non-blocking banner + sync queue for 401s during playback. V1 will throw an error; v1.1 adds the queued re-auth flow.
+2. **Series grouping in library** — `seriesName`/`seriesSequence` are stored and displayed on book detail, but library-level series grouping, series detail view, and "next in series" prompt are deferred.
+3. **Download completion persistence** — The `DownloadService` background session delegate needs to update the SwiftData model state on disk (not just in-memory). V1 may require a library refresh to reconcile.
+4. **ProgressService and AudioPlayerService unit tests** — Additional test coverage for these critical paths should be added as a fast-follow.
