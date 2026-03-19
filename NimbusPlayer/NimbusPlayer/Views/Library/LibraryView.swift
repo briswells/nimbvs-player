@@ -9,6 +9,7 @@ struct LibraryView: View {
     @Environment(AppState.self) private var appState
     @Environment(LibraryService.self) private var libraryService
     @Environment(ProgressService.self) private var progressService
+    @Environment(NetworkMonitor.self) private var networkMonitor
     @Environment(\.modelContext) private var modelContext
 
     @Query private var books: [CachedBook]
@@ -26,6 +27,9 @@ struct LibraryView: View {
                     ScrollViewReader { proxy in
                         ScrollView {
                             VStack(alignment: .leading, spacing: 24) {
+                                if !networkMonitor.isConnected {
+                                    offlineBanner
+                                }
                                 if viewModel.groupMode == .allBooks {
                                     continueListeningSection
                                 }
@@ -346,6 +350,22 @@ struct LibraryView: View {
     }
 
     // MARK: - Helpers
+
+    private var offlineBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wifi.slash")
+                .font(.caption)
+            Text("You're offline — downloaded books are still playable")
+                .font(.caption)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(NimbusTheme.Colors.accentPurple.opacity(0.8))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
+    }
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title.uppercased())

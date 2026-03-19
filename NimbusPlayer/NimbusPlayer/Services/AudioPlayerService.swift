@@ -38,6 +38,8 @@ final class AudioPlayerService {
     private var timeObserver: Any?
     private var pausedAt: Date?
     private var statusObservation: NSKeyValueObservation?
+    private var localFileURLs: [URL] = []
+    private(set) var isOffline = false
 
     /// Weak reference to the server service, set externally to avoid a strong retain cycle.
     private weak var _serverService: ServerService?
@@ -84,6 +86,64 @@ final class AudioPlayerService {
 
         setupAudioSession()
         loadTrack(at: trackIndex, seekTo: trackLocalTime, serverId: serverId, serverService: serverService)
+    }
+
+    /// Starts offline playback from downloaded local files.
+    func startOfflinePlayback(
+        book: CachedBook,
+        downloadService: DownloadService,
+        startTime: TimeInterval? = nil
+    ) {
+        self.currentBook = book
+        self.sessionId = nil
+        self.sessionServerId = nil
+
+        // Build pseudo-tracks from local files
+        let bookDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Downloads", isDirectory: true)
+            .appendingPathComponent(book.id.uuidString, isDirectory: true)
+
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: bookDir,
+            includingPropertiesForKeys: nil
+        )
+        .filter({ !$0.lastPathComponent.hasPrefix(".") })
+        .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+        else { return }
+
+        guard !files.isEmpty else { return }
+
+        // Create local track entries
+        self.localFileURLs = files
+        self.tracks = []
+        self.chapters = []
+
+        // Calculate durations by loading each file's metadata
+        var offset: Double = 0
+        var builtTracks: [AudioTrackResponse] = []
+        for (i, file) in files.enumerated() {
+            // Use a placeholder duration; real duration will come from AVPlayer
+            let trackDuration = book.duration / Double(files.count)
+            builtTracks.append(AudioTrackResponse(
+                index: i,
+                startOffset: offset,
+                duration: trackDuration,
+                title: file.deletingPathExtension().lastPathComponent,
+                contentUrl: file.absoluteString,
+                mimeType: "audio/mpeg"
+            ))
+            offset += trackDuration
+        }
+        self.tracks = builtTracks
+        self.duration = book.duration
+        self.playbackSpeed = book.progress?.playbackSpeed ?? playbackSpeed
+        self.isOffline = true
+
+        let resumeTime = startTime ?? book.progress?.currentTime ?? 0
+        guard let (trackIndex, trackLocalTime) = findTrack(for: resumeTime) else { return }
+
+        setupAudioSession()
+        loadLocalTrack(at: trackIndex, seekTo: trackLocalTime)
     }
 
     /// Resumes playback at the current playback speed.
@@ -300,6 +360,70 @@ final class AudioPlayerService {
         }
 
         addTimeObserver()
+    }
+
+    /// Loads a local file for offline playback.
+    private func loadLocalTrack(at index: Int, seekTo: TimeInterval) {
+        guard index < localFileURLs.count else { return }
+
+        removeTimeObserver()
+        currentTrackIndex = index
+
+        isBuffering = true
+        let item = AVPlayerItem(url: localFileURLs[index])
+        if player == nil {
+            player = AVPlayer(playerItem: item)
+        } else {
+            player?.replaceCurrentItem(with: item)
+        }
+
+        statusObservation = player?.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+            Task { @MainActor in
+                self?.isBuffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            self?.advanceToNextLocalTrack()
+        }
+
+        let cmTime = CMTime(seconds: seekTo, preferredTimescale: 600)
+        player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            self?.play()
+        }
+
+        // Update duration from actual file once loaded
+        Task { @MainActor in
+            let asset = item.asset
+            if let d = try? await asset.load(.duration), d.seconds > 0, index < self.tracks.count {
+                // Recalculate this track's real duration
+                let realDuration = d.seconds
+                self.tracks[index] = AudioTrackResponse(
+                    index: index,
+                    startOffset: self.tracks[index].startOffset,
+                    duration: realDuration,
+                    title: self.tracks[index].title,
+                    contentUrl: self.tracks[index].contentUrl,
+                    mimeType: self.tracks[index].mimeType
+                )
+            }
+        }
+
+        addTimeObserver()
+    }
+
+    /// Advances to the next local track, or pauses if done.
+    private func advanceToNextLocalTrack() {
+        let nextIndex = currentTrackIndex + 1
+        if nextIndex < localFileURLs.count {
+            loadLocalTrack(at: nextIndex, seekTo: 0)
+        } else {
+            pause()
+        }
     }
 
     /// Advances to the next track in the sequence, or pauses if the book is finished.
