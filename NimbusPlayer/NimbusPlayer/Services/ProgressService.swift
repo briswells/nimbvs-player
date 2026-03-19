@@ -237,6 +237,22 @@ final class ProgressService {
         serverService: ServerService,
         modelContext: ModelContext
     ) async {
+        // Fetch all cached books up front to match by libraryItemId
+        let allBooks: [CachedBook]
+        do {
+            allBooks = try modelContext.fetch(FetchDescriptor<CachedBook>())
+        } catch {
+            return
+        }
+
+        // Build a lookup: libraryItemId → CachedBook
+        var itemIdToBook: [String: CachedBook] = [:]
+        for book in allBooks {
+            for mapping in book.serverMappings {
+                itemIdToBook[mapping.libraryItemId] = book
+            }
+        }
+
         for server in servers where server.isActive {
             guard let client = serverService.client(for: server.id) else { continue }
 
@@ -245,24 +261,15 @@ final class ProgressService {
 
             for remote in progressList {
                 guard remote.currentTime > 0 || remote.isFinished else { continue }
-
-                // Find the cached book by its server mapping
-                let itemId = remote.libraryItemId
-                let descriptor = FetchDescriptor<ServerBookMapping>(
-                    predicate: #Predicate<ServerBookMapping> { $0.libraryItemId == itemId }
-                )
-                guard let mapping = try? modelContext.fetch(descriptor).first,
-                      let book = mapping.book else { continue }
+                guard let book = itemIdToBook[remote.libraryItemId] else { continue }
 
                 let localTime = book.progress?.currentTime ?? 0
                 let localUpdate = book.progress?.lastUpdated ?? .distantPast
                 let remoteDate = Date(timeIntervalSince1970: remote.lastUpdate / 1000)
 
-                // Apply remote if: no local progress, or remote is newer
                 if localTime == 0 && remote.currentTime > 0 {
                     applyRemoteProgress(remote, to: book, modelContext: modelContext)
                 } else if remoteDate > localUpdate && abs(remote.currentTime - localTime) > 30 {
-                    // Remote is newer with significant difference — apply silently on bulk sync
                     applyRemoteProgress(remote, to: book, modelContext: modelContext)
                 }
             }

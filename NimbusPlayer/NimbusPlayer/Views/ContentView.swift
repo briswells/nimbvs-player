@@ -4,12 +4,15 @@ import SwiftUI
 struct ContentView: View {
     @Query private var servers: [Server]
     @Environment(ServerService.self) private var serverService
+    @Environment(LibraryService.self) private var libraryService
+    @Environment(ProgressService.self) private var progressService
+    @Environment(\.modelContext) private var modelContext
     @State private var showOnboarding = false
+    @State private var needsInitialLoad = false
 
     var body: some View {
         MainTabView()
             .task {
-                // Load API clients from Keychain for persisted servers
                 if !servers.isEmpty {
                     serverService.loadClients(servers: servers)
                     await serverService.validateConnections(servers: servers)
@@ -20,10 +23,30 @@ struct ContentView: View {
                     showOnboarding = true
                 }
             }
-            .sheet(isPresented: $showOnboarding) {
+            .sheet(isPresented: $showOnboarding, onDismiss: {
+                // After adding first server, trigger library load
+                if !servers.isEmpty {
+                    needsInitialLoad = true
+                }
+            }) {
                 AddServerView(isOnboarding: true) {
                     showOnboarding = false
                 }
+            }
+            .task(id: needsInitialLoad) {
+                guard needsInitialLoad else { return }
+                needsInitialLoad = false
+                serverService.loadClients(servers: servers)
+                await libraryService.refreshLibrary(
+                    servers: servers,
+                    serverService: { serverService.client(for: $0.id) },
+                    modelContext: modelContext
+                )
+                await progressService.syncAllProgress(
+                    servers: servers,
+                    serverService: serverService,
+                    modelContext: modelContext
+                )
             }
     }
 }
@@ -58,7 +81,6 @@ struct MainTabView: View {
             }
             .tint(NimbusTheme.Colors.accentPink)
 
-            // Mini player bar above the tab bar
             if playerService.currentBook != nil {
                 VStack(spacing: 0) {
                     Spacer()
