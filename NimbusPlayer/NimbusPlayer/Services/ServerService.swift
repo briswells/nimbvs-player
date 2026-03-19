@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "com.nimbusplayer.app", category: "ServerService")
 
 // MARK: - ServerService
 
@@ -84,36 +87,38 @@ final class ServerService {
 
     /// Checks authentication status for all servers in parallel and updates `serverStatuses`.
     func validateConnections(servers: [Server]) async {
-        await withTaskGroup(of: (UUID, ServerStatus).self) { group in
-            for server in servers {
-                guard let client = clients[server.id] else {
-                    serverStatuses[server.id] = .authExpired
-                    continue
-                }
-
-                group.addTask {
-                    do {
-                        _ = try await client.authorize()
-                        return (server.id, .connected)
-                    } catch let error as APIError {
-                        switch error {
-                        case .unauthorized:
-                            return (server.id, .authExpired)
-                        case .serverUnreachable:
-                            return (server.id, .unreachable)
-                        default:
-                            return (server.id, .unreachable)
-                        }
-                    } catch {
-                        return (server.id, .unreachable)
-                    }
-                }
+        logger.warning("validateConnections called for \(servers.count) servers")
+        for server in servers {
+            guard let client = clients[server.id] else {
+                logger.warning("\(server.displayName): no client, marking authExpired")
+                serverStatuses[server.id] = .authExpired
+                continue
             }
 
-            for await (serverId, status) in group {
+            let serverId = server.id
+            let name = server.displayName
+            do {
+                let status: ServerStatus = try await withThrowingTaskGroup(of: ServerStatus.self) { inner in
+                    inner.addTask {
+                        _ = try await client.authorize()
+                        return .connected
+                    }
+                    inner.addTask {
+                        try await Task.sleep(for: .seconds(5))
+                        throw CancellationError()
+                    }
+                    let result = try await inner.next() ?? .unreachable
+                    inner.cancelAll()
+                    return result
+                }
+                logger.warning("\(name): status=\(String(describing: status))")
                 serverStatuses[serverId] = status
+            } catch {
+                logger.warning("\(name): unreachable error=\(error.localizedDescription)")
+                serverStatuses[serverId] = .unreachable
             }
         }
+        logger.warning("final statuses: \(self.serverStatuses.map { "\($0.key): \($0.value)" }.joined(separator: ", "))")
     }
 
     // MARK: - Removal

@@ -6,7 +6,21 @@ struct SearchView: View {
     @Query private var books: [CachedBook]
     @Query private var servers: [Server]
     @Environment(ServerService.self) private var serverService
+    @Environment(DownloadService.self) private var downloadService
     @State private var viewModel = SearchViewModel()
+
+    private var isOffline: Bool {
+        guard !servers.isEmpty else { return false }
+        return servers.allSatisfy { serverService.serverStatuses[$0.id] != .connected }
+    }
+
+    /// When offline, only show downloaded books in search.
+    private var searchableBooks: [CachedBook] {
+        if isOffline {
+            return books.filter { downloadService.isBookDownloaded(bookId: $0.id) }
+        }
+        return books
+    }
 
     var body: some View {
         NavigationStack {
@@ -27,7 +41,7 @@ struct SearchView: View {
                 viewModel.searchImmediate(
                     servers: servers,
                     serverService: serverService,
-                    allBooks: books
+                    allBooks: searchableBooks
                 )
             }
             .onChange(of: viewModel.query) { _, newValue in
@@ -37,7 +51,7 @@ struct SearchView: View {
                     viewModel.searchDebounced(
                         servers: servers,
                         serverService: serverService,
-                        allBooks: books
+                        allBooks: searchableBooks
                     )
                 }
             }
@@ -63,7 +77,7 @@ struct SearchView: View {
                             viewModel.searchImmediate(
                                 servers: servers,
                                 serverService: serverService,
-                                allBooks: books
+                                allBooks: searchableBooks
                             )
                         } label: {
                             Label(search, systemImage: "clock")
