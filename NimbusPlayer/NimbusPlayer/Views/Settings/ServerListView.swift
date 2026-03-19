@@ -24,6 +24,8 @@ struct ServerListView: View {
             }
             .onDelete(perform: deleteServers)
         }
+        .scrollContentBackground(.hidden)
+        .background(NimbusTheme.Colors.backgroundGrouped)
         .navigationTitle("Servers")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {

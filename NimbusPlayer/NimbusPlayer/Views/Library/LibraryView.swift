@@ -35,6 +35,7 @@ struct LibraryView: View {
                 }
                 .padding(.bottom, 100)
             }
+            .background(NimbusTheme.Colors.backgroundDark)
             .navigationTitle("Library")
             .navigationBarTitleDisplayMode(.large)
             .navigationDestination(for: CachedBook.self) { book in

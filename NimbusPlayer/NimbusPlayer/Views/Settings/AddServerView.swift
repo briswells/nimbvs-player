@@ -52,6 +52,8 @@ struct AddServerView: View {
                     connectButton
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(NimbusTheme.Colors.backgroundGrouped)
             .disabled(viewModel.isLoading)
         }
     }
