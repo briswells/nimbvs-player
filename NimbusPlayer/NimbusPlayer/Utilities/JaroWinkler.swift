@@ -45,6 +45,7 @@ enum JaroWinkler {
         for i in 0..<len1 {
             let lo = max(0, i - matchWindow)
             let hi = min(i + matchWindow, len2 - 1)
+            guard lo <= hi else { continue }
             for j in lo...hi {
                 guard !s2Matched[j], s1[i] == s2[j] else { continue }
                 s1Matched[i] = true

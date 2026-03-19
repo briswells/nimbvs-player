@@ -35,10 +35,8 @@ struct LibraryView: View {
                 }
                 .padding(.bottom, 100)
             }
-            .background(NimbusTheme.Colors.backgroundDark)
             .navigationTitle("Library")
             .navigationBarTitleDisplayMode(.large)
-            .toolbarColorScheme(.dark, for: .navigationBar)
             .navigationDestination(for: CachedBook.self) { book in
                 BookDetailView(book: book)
             }

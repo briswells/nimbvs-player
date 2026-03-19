@@ -1,9 +1,30 @@
+import SwiftData
 import SwiftUI
 
 struct ContentView: View {
-    // TODO: Wire up onboarding flow later
+    @Query private var servers: [Server]
+    @Environment(ServerService.self) private var serverService
+    @State private var showOnboarding = false
+
     var body: some View {
         MainTabView()
+            .task {
+                // Load API clients from Keychain for persisted servers
+                if !servers.isEmpty {
+                    serverService.loadClients(servers: servers)
+                    await serverService.validateConnections(servers: servers)
+                }
+            }
+            .onAppear {
+                if servers.isEmpty {
+                    showOnboarding = true
+                }
+            }
+            .sheet(isPresented: $showOnboarding) {
+                AddServerView(isOnboarding: true) {
+                    showOnboarding = false
+                }
+            }
     }
 }
 
@@ -50,11 +71,4 @@ struct MainTabView: View {
             NowPlayingView()
         }
     }
-}
-
-#Preview {
-    ContentView()
-        .environment(AppState())
-        .environment(AudioPlayerService())
-        .environment(ServerService())
 }
