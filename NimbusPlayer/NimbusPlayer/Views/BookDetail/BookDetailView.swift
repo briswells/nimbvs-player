@@ -12,8 +12,14 @@ struct BookDetailView: View {
     let book: CachedBook
 
     @Environment(ServerService.self) private var serverService
+    @Environment(AudioPlayerService.self) private var playerService
+    @Environment(ProgressService.self) private var progressService
+    @Environment(\.modelContext) private var modelContext
     @State private var viewModel = BookDetailViewModel()
     @State private var showServerComparison = false
+    @State private var isStartingPlayback = false
+    @State private var showToast = false
+    @State private var toastMessage = ""
 
     // MARK: - Body
 
@@ -41,6 +47,7 @@ struct BookDetailView: View {
         .task {
             await viewModel.loadDetails(book: book, serverService: serverService)
         }
+        .toast(isPresented: $showToast, message: toastMessage, icon: "server.rack")
     }
 
     // MARK: - Cover Section
@@ -200,7 +207,7 @@ struct BookDetailView: View {
         HStack(spacing: NimbusTheme.Dimensions.paddingMedium) {
             // Play / Continue button
             Button {
-                // Placeholder — wired up in Task 24
+                Task { await startPlayback() }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: playButtonIcon)
@@ -214,6 +221,7 @@ struct BookDetailView: View {
                 .background(NimbusTheme.Gradients.accent)
                 .clipShape(RoundedRectangle(cornerRadius: NimbusTheme.Dimensions.cornerRadius))
             }
+            .disabled(isStartingPlayback)
 
             // Download button
             Button {
@@ -315,5 +323,63 @@ struct BookDetailView: View {
         .padding(.horizontal, NimbusTheme.Dimensions.paddingSmall)
         .background(NimbusTheme.Colors.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: NimbusTheme.Dimensions.smallCornerRadius))
+    }
+
+    // MARK: - Playback
+
+    private func startPlayback() async {
+        isStartingPlayback = true
+
+        guard let mapping = book.preferredMapping,
+              let serverId = mapping.server?.id,
+              let client = serverService.client(for: serverId) else {
+            // Try fallback servers
+            for otherMapping in book.serverMappings where otherMapping.id != book.preferredMapping?.id {
+                if let sid = otherMapping.server?.id,
+                   let client = serverService.client(for: sid) {
+                    await attemptPlayback(client: client, mapping: otherMapping, serverId: sid)
+                    isStartingPlayback = false
+                    return
+                }
+            }
+            isStartingPlayback = false
+            return
+        }
+
+        await attemptPlayback(client: client, mapping: mapping, serverId: serverId)
+        isStartingPlayback = false
+    }
+
+    private func attemptPlayback(client: APIClient, mapping: ServerBookMapping, serverId: UUID) async {
+        let request = PlaybackSessionRequest.defaultRequest(
+            deviceId: UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString,
+            appVersion: "1.0"
+        )
+
+        do {
+            let session = try await client.startPlaybackSession(
+                itemId: mapping.libraryItemId,
+                requestBody: request
+            )
+
+            await MainActor.run {
+                playerService.setServerServiceRef(serverService)
+                playerService.startPlayback(
+                    book: book,
+                    session: session,
+                    serverId: serverId,
+                    serverService: serverService,
+                    startTime: book.progress?.currentTime
+                )
+                progressService.startTracking(playerService: playerService, modelContext: modelContext)
+
+                if mapping.id != book.preferredMapping?.id {
+                    toastMessage = "Playing from \(mapping.server?.displayName ?? "alternate server")"
+                    showToast = true
+                }
+            }
+        } catch {
+            // Playback failed
+        }
     }
 }
