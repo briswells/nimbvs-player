@@ -341,33 +341,38 @@ final class DownloadService: NSObject, URLSessionDownloadDelegate {
             .replacingOccurrences(of: ":", with: "_")
         let fileName = String(format: "%03d_%@.%@", trackIndex, sanitizedName, fileExtension)
 
-        // MUST move file synchronously — the temp file is deleted when this method returns
-        let bookId: UUID
-        if let active = MainActor.assumeIsolated({ self.activeDownloads[downloadId] }) {
-            bookId = active.bookId
-        } else {
-            return
-        }
-
-        let bookDir = downloadsDirectory(for: bookId)
-        try? FileManager.default.createDirectory(at: bookDir, withIntermediateDirectories: true)
-        let destinationURL = bookDir.appendingPathComponent(fileName)
-        try? FileManager.default.removeItem(at: destinationURL)
-
+        // MUST move file synchronously — the temp file is deleted when this method returns.
+        // Copy to a safe temporary location first, then dispatch the move + state update to main actor.
+        let tempCopy = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + fileExtension)
         do {
-            try FileManager.default.moveItem(at: location, to: destinationURL)
+            try FileManager.default.copyItem(at: location, to: tempCopy)
         } catch {
             return
         }
 
-        let relativePath = "Downloads/\(bookId.uuidString)/\(fileName)"
-
-        // Update state on main actor
         Task { @MainActor in
+            guard let download = self.activeDownloads[downloadId] else {
+                try? FileManager.default.removeItem(at: tempCopy)
+                return
+            }
+
+            let bookDir = self.downloadsDirectory(for: download.bookId)
+            try? FileManager.default.createDirectory(at: bookDir, withIntermediateDirectories: true)
+            let destinationURL = bookDir.appendingPathComponent(fileName)
+            try? FileManager.default.removeItem(at: destinationURL)
+
+            do {
+                try FileManager.default.moveItem(at: tempCopy, to: destinationURL)
+            } catch {
+                try? FileManager.default.removeItem(at: tempCopy)
+                return
+            }
+
             self.activeDownloads[downloadId]?.completedFiles += 1
             let completedFiles = self.activeDownloads[downloadId]?.completedFiles ?? 0
-            let totalFiles = MainActor.assumeIsolated { self.activeDownloads[downloadId]?.totalFiles ?? 1 }
+            let totalFiles = download.totalFiles
 
+            let relativePath = "Downloads/\(download.bookId.uuidString)/\(fileName)"
             self.updateDownloadModel(
                 downloadId: downloadId,
                 relativePath: relativePath,
