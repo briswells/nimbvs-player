@@ -47,7 +47,7 @@ Views (SwiftUI)
 - Token stored in Keychain, keyed by server ID
 
 ### CachedBook
-- `id`: UUID
+- `id`: UUID (deterministically generated from dedup key — see note below)
 - `title`: String
 - `author`: String
 - `narrator`: String?
@@ -60,6 +60,8 @@ Views (SwiftUI)
 - `seriesSequence`: String?
 - `serverMappings`: [ServerBookMapping]
 - `lastUpdated`: Date
+
+**CachedBook ID generation:** To ensure stable identity across app reinstalls, the UUID is deterministically derived: if ASIN exists, `UUID(name: "asin:{asin}")` (UUID v5); if ISBN, `UUID(name: "isbn:{isbn}")`; otherwise `UUID(name: "title:{normalizedTitle}|author:{normalizedAuthor}")`. This means progress and downloads survive database resets as long as the book can be re-matched.
 
 ### ServerBookMapping
 - `id`: UUID
@@ -76,12 +78,13 @@ Views (SwiftUI)
 - `book`: CachedBook (relationship)
 - `currentTime`: TimeInterval
 - `totalDuration`: TimeInterval
-- `currentChapter`: Int?
 - `progress`: Double (0.0–1.0)
 - `isFinished`: Bool
 - `playbackSpeed`: Double? (nil = use global default)
 - `lastUpdated`: Date
 - `needsSync`: Bool (dirty flag for offline changes)
+
+Note: Current chapter is derived at display time from `currentTime` and the chapter list, not stored. This avoids stale references if server chapter metadata changes.
 
 ### Download
 - `id`: UUID
@@ -90,7 +93,7 @@ Views (SwiftUI)
 - `state`: DownloadState (queued/downloading/paused/complete/failed)
 - `totalBytes`: Int64
 - `downloadedBytes`: Int64
-- `filePaths`: [String]
+- `relativeFilePaths`: [String] (relative to app's Documents directory — resolved at runtime to avoid iOS sandbox path changes)
 - `dateStarted`: Date
 - `dateCompleted`: Date?
 
@@ -108,6 +111,12 @@ Views (SwiftUI)
 - Token stored in Keychain per server
 - On app launch, validate token with GET `/api/authorize` for each server
 - If token expired/invalid, prompt re-authentication
+- **Mid-session token expiry:** If an API call returns 401 during playback or download:
+  - Playback continues (audio is already buffered/streaming) but sync calls are queued
+  - A non-blocking banner appears: "Session expired for [Server] — tap to re-authenticate"
+  - On re-auth, queued syncs flush immediately
+  - Downloads pause and resume after re-auth
+  - If another server has the book, fallback to that server for sync
 
 ## Multi-Server Design
 
@@ -117,12 +126,15 @@ Views (SwiftUI)
 - All active servers queried concurrently on app launch and pull-to-refresh
 
 ### Book Deduplication Algorithm
-1. Fetch all library items from all active servers in parallel
+1. Fetch all library items from all active servers in parallel (paginated at 100 items per page)
 2. For each item, extract: ASIN, ISBN, title, author
 3. Matching priority:
    - **Exact ASIN match** → same book
    - **Exact ISBN match** → same book
-   - **Fuzzy title + author match** → normalized string comparison (lowercase, strip subtitles/punctuation), ~85% similarity threshold
+   - **Fuzzy title + author match** using Jaro-Winkler similarity:
+     - Normalize: lowercase, trim whitespace, strip subtitle (split on `:` or ` - `, take first part), remove leading "The "/"A "/"An "
+     - Compare title and author independently, both must score ≥ 0.85
+     - If only one field scores ≥ 0.85, do not match (avoids false positives from common authors with different books)
 4. Matched items grouped into a single CachedBook with multiple ServerBookMappings
 5. Unmatched items become standalone CachedBook entries
 
@@ -137,10 +149,37 @@ Views (SwiftUI)
 
 ## Audio Playback
 
+### Playback Session Lifecycle
+1. POST `/api/items/{id}/play` with request body:
+   ```json
+   {
+     "deviceInfo": {
+       "deviceId": "<unique device UUID>",
+       "clientName": "Nimbus Player",
+       "clientVersion": "<app version>",
+       "manufacturer": "Apple",
+       "model": "<iPhone model>",
+       "osName": "iOS",
+       "osVersion": "<iOS version>"
+     },
+     "forceTranscode": false,
+     "mediaPlayer": "AVPlayer"
+   }
+   ```
+2. Response is a `PlaybackSession` object containing:
+   - `id` — session ID used for all subsequent sync/close calls
+   - `audioTracks` array — each with `index`, `startOffset`, `duration`, `contentUrl`, `mimeType`
+   - `currentTime`, `duration`, `chapters`, `coverPath`, etc.
+3. The `contentUrl` in audioTracks is a **relative path** (e.g., `/s/item/li_abc123/filename.mp3`)
+   - Must prepend the server's base URL: `{server.url}{contentUrl}`
+   - Must include auth: either `Authorization: Bearer` header or `?token=` query param
+   - In multi-server context, always use the URL of the server that owns the session
+4. Store the session ID locally — needed for sync and close calls
+
 ### AVPlayer Management
 - Single `AudioPlayerService` with one shared AVPlayer instance
-- Handles sequential track advancement (audiobooks have multiple audio files)
-- Streaming: uses `contentUrl` from Audiobookshelf AudioTrack objects
+- Handles sequential track advancement using the `audioTracks` array from the playback session
+- Streaming URL construction: `{serverBaseUrl}{track.contentUrl}?token={serverToken}`
 - Offline: plays from local file URLs for downloaded books
 - Background audio: AVAudioSession category `.playback`
 - Interruption handling: pause on interruption, resume when ended
@@ -170,9 +209,10 @@ Views (SwiftUI)
 - Applied to lock screen controls and in-app buttons
 
 ### Resume Rewind
-- When resuming after extended pause, rewind a few seconds for context
-- Configurable: 0, 3, 5, 10 seconds
+- When resuming after being paused for **more than 2 minutes**, rewind a few seconds for context
+- Configurable rewind amount: 0, 3, 5, 10 seconds
 - Default: 5 seconds
+- Threshold (2 min) is not user-configurable — just the rewind amount
 
 ## Progress Tracking
 
@@ -194,9 +234,10 @@ This is the highest-priority feature. Local-first with server sync.
 | Connectivity restored | Flush all `needsSync` progress to servers |
 
 ### Conflict Resolution
-- Latest timestamp wins
+- Latest timestamp wins, **but never regress position by more than 60 seconds without user confirmation**
 - If local is ahead → push to server
 - If server is ahead (listened on another device) → pull to local
+- If server has an earlier position with a newer timestamp (e.g., re-listened on another device), show a prompt: "Your progress on [Server] is at 2:00 but you were at 5:00 locally. Use server position or keep local?"
 - Multi-server: sync progress to ALL connected servers that have the book
 
 ### Offline Scenario
@@ -226,6 +267,11 @@ This is the highest-priority feature. Local-first with server sync.
 - Swipe-to-delete individual book downloads
 - Settings → Manage Storage: list downloads sorted by size
 - Optional: auto-remove downloads after finishing a book (toggle in Settings, default off)
+
+### Error Handling
+- **Storage full mid-download:** Download moves to `failed` state, partial files cleaned up, user notified with "Not enough storage" alert and suggestion to free space
+- **Network lost mid-download:** Download moves to `paused` state, auto-resumes when connectivity returns
+- **Server unreachable mid-download:** Retry 3 times with exponential backoff, then move to `failed` with option to retry manually
 
 ## Navigation & Tab Structure
 
@@ -298,7 +344,7 @@ This is the highest-priority feature. Local-first with server sync.
 | Login | POST | `/login` |
 | Validate token | GET | `/api/authorize` |
 | List libraries | GET | `/api/libraries` |
-| List library items | GET | `/api/libraries/{id}/items` |
+| List library items | GET | `/api/libraries/{id}/items?limit=100&page=N` |
 | Get item details | GET | `/api/items/{id}` |
 | Get item cover | GET | `/api/items/{id}/cover` |
 | Search library | GET | `/api/libraries/{id}/search?q=` |
@@ -311,6 +357,15 @@ This is the highest-priority feature. Local-first with server sync.
 | Get user info | GET | `/api/me` |
 | Get listening sessions | GET | `/api/me/listening-sessions` |
 | Get listening stats | GET | `/api/me/listening-stats` |
+
+## Image Caching
+
+- Cover art fetched via `GET /api/items/{id}/cover` (append `?token=` or auth header)
+- Disk cache in app's Caches directory (system can evict when storage is low)
+- Two sizes cached: thumbnail (120px, for grid/list views) and full (600px, for detail/Now Playing)
+- Cache keyed by `{serverId}_{libraryItemId}` — avoids conflicts across servers
+- Max cache size: 500MB, LRU eviction when exceeded
+- Cache persists across launches but is not backed up to iCloud
 
 ## Out of Scope (for v1)
 
