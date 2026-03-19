@@ -15,33 +15,50 @@ struct LibraryView: View {
     @Query(filter: #Predicate<Server> { $0.isActive }) private var servers: [Server]
 
     @State private var viewModel = LibraryViewModel()
+    @State private var isInitialLoad = false
 
     // MARK: - Body
 
     var body: some View {
         NavigationStack {
-            ZStack(alignment: .trailing) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 24) {
-                            if viewModel.groupMode == .allBooks {
-                                continueListeningSection
+            ZStack {
+                ZStack(alignment: .trailing) {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 24) {
+                                if viewModel.groupMode == .allBooks {
+                                    continueListeningSection
+                                }
+                                libraryContent
                             }
-                            libraryContent
+                            .padding(.bottom, 140)
                         }
-                        .padding(.bottom, 140)
-                    }
-                    .overlay(alignment: .trailing) {
-                        if let letters = activeSectionLetters, letters.count > 1 {
-                            SectionIndexView(
-                                letters: letters,
-                                idPrefix: sectionIdPrefix,
-                                scrollProxy: proxy
-                            )
-                            .padding(.trailing, 2)
-                            .padding(.vertical, 60)
+                        .overlay(alignment: .trailing) {
+                            if let letters = activeSectionLetters, letters.count > 1 {
+                                SectionIndexView(
+                                    letters: letters,
+                                    idPrefix: sectionIdPrefix,
+                                    scrollProxy: proxy
+                                )
+                                .padding(.trailing, 2)
+                                .padding(.vertical, 60)
+                            }
                         }
                     }
+                }
+
+                // Loading overlay
+                if isInitialLoad {
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .tint(NimbusTheme.Colors.accentPink)
+                        Text("Loading library...")
+                            .font(.subheadline)
+                            .foregroundStyle(NimbusTheme.Colors.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(NimbusTheme.Colors.backgroundDark.opacity(0.9))
                 }
             }
             .background(NimbusTheme.Colors.backgroundDark)
@@ -65,9 +82,13 @@ struct LibraryView: View {
             .refreshable {
                 await refreshLibrary()
             }
-            .task {
+            .task(id: servers.count) {
+                // Fires on initial appear AND when servers change (after onboarding adds one)
+                guard !servers.isEmpty else { return }
                 if books.isEmpty {
+                    isInitialLoad = true
                     await refreshLibrary()
+                    isInitialLoad = false
                 }
             }
         }
@@ -335,6 +356,9 @@ struct LibraryView: View {
     }
 
     private func refreshLibrary() async {
+        // Ensure clients are loaded (needed after onboarding adds a server)
+        serverService.loadClients(servers: servers)
+
         await viewModel.refresh(
             servers: servers,
             serverService: { server in
