@@ -53,6 +53,10 @@ final class DownloadService: NSObject, URLSessionDownloadDelegate {
     @ObservationIgnored
     private var _backgroundSession: URLSession?
 
+    /// Stored model context for delegate callbacks to update SwiftData.
+    @ObservationIgnored
+    private var _modelContext: ModelContext?
+
     private var backgroundSession: URLSession {
         if let existing = _backgroundSession { return existing }
         let config = URLSessionConfiguration.background(withIdentifier: "com.nimbusplayer.downloads")
@@ -86,6 +90,8 @@ final class DownloadService: NSObject, URLSessionDownloadDelegate {
         modelContext: ModelContext
     ) async throws {
         // Check network availability
+        _modelContext = modelContext
+
         guard networkMonitor.isConnected else {
             throw DownloadError.noServerAvailable
         }
@@ -335,31 +341,33 @@ final class DownloadService: NSObject, URLSessionDownloadDelegate {
             .replacingOccurrences(of: ":", with: "_")
         let fileName = String(format: "%03d_%@.%@", trackIndex, sanitizedName, fileExtension)
 
+        // MUST move file synchronously — the temp file is deleted when this method returns
+        let bookId: UUID
+        if let active = MainActor.assumeIsolated({ self.activeDownloads[downloadId] }) {
+            bookId = active.bookId
+        } else {
+            return
+        }
+
+        let bookDir = downloadsDirectory(for: bookId)
+        try? FileManager.default.createDirectory(at: bookDir, withIntermediateDirectories: true)
+        let destinationURL = bookDir.appendingPathComponent(fileName)
+        try? FileManager.default.removeItem(at: destinationURL)
+
+        do {
+            try FileManager.default.moveItem(at: location, to: destinationURL)
+        } catch {
+            return
+        }
+
+        let relativePath = "Downloads/\(bookId.uuidString)/\(fileName)"
+
+        // Update state on main actor
         Task { @MainActor in
-            guard let download = self.activeDownloads[downloadId] else { return }
-
-            let bookDir = self.downloadsDirectory(for: download.bookId)
-            try? FileManager.default.createDirectory(at: bookDir, withIntermediateDirectories: true)
-
-            let destinationURL = bookDir.appendingPathComponent(fileName)
-
-            // Remove existing file if present
-            try? FileManager.default.removeItem(at: destinationURL)
-
-            do {
-                try FileManager.default.moveItem(at: location, to: destinationURL)
-            } catch {
-                return
-            }
-
-            // Update progress
             self.activeDownloads[downloadId]?.completedFiles += 1
-
             let completedFiles = self.activeDownloads[downloadId]?.completedFiles ?? 0
-            let totalFiles = download.totalFiles
+            let totalFiles = MainActor.assumeIsolated { self.activeDownloads[downloadId]?.totalFiles ?? 1 }
 
-            // Store relative path in the download model
-            let relativePath = "Downloads/\(download.bookId.uuidString)/\(fileName)"
             self.updateDownloadModel(
                 downloadId: downloadId,
                 relativePath: relativePath,
@@ -427,9 +435,15 @@ final class DownloadService: NSObject, URLSessionDownloadDelegate {
     /// Updates the download model with a newly completed file path and checks for overall completion.
     @MainActor
     private func updateDownloadModel(downloadId: UUID, relativePath: String, isComplete: Bool) {
-        // This would ideally use the model context, but we update through a shared context
-        // For now, track state in the active download and finalize when complete
-        if isComplete {
+        if let model = fetchDownloadModel(downloadId) {
+            model.relativeFilePaths.append(relativePath)
+            if isComplete {
+                model.state = .complete
+                model.dateCompleted = Date()
+                activeDownloads.removeValue(forKey: downloadId)
+            }
+            try? _modelContext?.save()
+        } else if isComplete {
             activeDownloads.removeValue(forKey: downloadId)
         }
     }
@@ -443,14 +457,28 @@ final class DownloadService: NSObject, URLSessionDownloadDelegate {
             }
             activeDownloads.removeValue(forKey: downloadId)
         }
+        if let model = fetchDownloadModel(downloadId) {
+            model.state = .failed
+            model.errorMessage = error
+            try? _modelContext?.save()
+        }
     }
 
     /// Increments the downloaded byte count for an active download.
     @MainActor
     private func updateProgress(downloadId: UUID, bytesWritten: Int64) {
-        // Progress is tracked per-task; the DownloadModel's downloadedBytes
-        // will be updated when the model context is available.
-        _ = activeDownloads[downloadId]
+        if let model = fetchDownloadModel(downloadId) {
+            model.downloadedBytes += bytesWritten
+            // Save periodically (not every write callback — too expensive)
+        }
+    }
+
+    /// Fetches the DownloadModel from SwiftData by ID.
+    /// Uses a full fetch + filter to avoid SwiftData predicate issues with UUID variables.
+    private func fetchDownloadModel(_ downloadId: UUID) -> DownloadModel? {
+        guard let context = _modelContext else { return nil }
+        let all = try? context.fetch(FetchDescriptor<DownloadModel>())
+        return all?.first { $0.id == downloadId }
     }
 
     /// Checks whether an error indicates the device has run out of storage space.
