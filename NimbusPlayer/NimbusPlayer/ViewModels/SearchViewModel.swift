@@ -7,6 +7,7 @@ import Foundation
 final class SearchViewModel {
     var query = ""
     var results: [CachedBook] = []
+    var seriesResults: [LibraryViewModel.BookGroup] = []
     var isSearching = false
     var recentSearches: [String] = []
 
@@ -94,6 +95,26 @@ final class SearchViewModel {
 
         guard !Task.isCancelled else { return }
         results = merged
+
+        // Build series results from cached books whose seriesName matches the query
+        var seriesDict: [String: [CachedBook]] = [:]
+        for book in allBooks {
+            guard let seriesName = book.seriesName, !seriesName.isEmpty else { continue }
+            if seriesName.lowercased().contains(lowercaseQuery) {
+                seriesDict[seriesName, default: []].append(book)
+            }
+        }
+        seriesResults = seriesDict.map { name, books in
+            let sorted = books.sorted { lhs, rhs in
+                let lSeq = Double(lhs.seriesSequence ?? "") ?? .greatestFiniteMagnitude
+                let rSeq = Double(rhs.seriesSequence ?? "") ?? .greatestFiniteMagnitude
+                if lSeq != rSeq { return lSeq < rSeq }
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
+            return LibraryViewModel.BookGroup(id: "series:\(name)", name: name, books: sorted)
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
         isSearching = false
     }
 
@@ -104,6 +125,7 @@ final class SearchViewModel {
         searchTask?.cancel()
         query = ""
         results = []
+        seriesResults = []
     }
 
     /// Removes all saved recent searches.

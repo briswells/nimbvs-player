@@ -47,14 +47,28 @@ struct LibraryItemResponse: Codable {
         media.metadata.isbn
     }
 
-    /// Series name from the first series entry, if any.
+    /// Series name — from structured series array, or parsed from the pre-computed seriesName string.
     var seriesName: String? {
-        media.metadata.series?.first?.name
+        if let name = media.metadata.series?.first?.name, !name.isEmpty {
+            return name
+        }
+        // Fall back to parsing "The Expanse #3" → "The Expanse"
+        guard let raw = media.metadata.seriesName, !raw.isEmpty else { return nil }
+        let parts = raw.split(separator: "#", maxSplits: 1)
+        return parts.first.map { String($0).trimmingCharacters(in: .whitespaces) }
     }
 
-    /// Series sequence from the first series entry, if any.
+    /// Series sequence — from structured series array, or parsed from the pre-computed seriesName string.
     var seriesSequence: String? {
-        media.metadata.series?.first?.sequence
+        if let seq = media.metadata.series?.first?.sequence, !seq.isEmpty {
+            return seq
+        }
+        // Fall back to parsing "The Expanse #3" → "3"
+        guard let raw = media.metadata.seriesName, !raw.isEmpty else { return nil }
+        let parts = raw.split(separator: "#", maxSplits: 1)
+        guard parts.count > 1 else { return nil }
+        let seq = String(parts[1]).trimmingCharacters(in: .whitespaces)
+        return seq.isEmpty ? nil : seq
     }
 
     /// Total duration of all audio files in seconds.
@@ -107,6 +121,8 @@ struct MetadataResponse: Codable {
     let genres: [String]?
     let authors: [AuthorResponse]?
     let series: [SeriesEntryResponse]?
+    /// Pre-computed by the server, e.g. "The Expanse #3" or "Harry Potter (Full-Cast Editions) #2"
+    let seriesName: String?
 }
 
 // MARK: - AuthorResponse

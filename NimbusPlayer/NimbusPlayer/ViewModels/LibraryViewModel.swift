@@ -3,7 +3,7 @@ import SwiftData
 
 // MARK: - LibraryViewModel
 
-/// View model that manages library display state including sorting, layout, and refresh.
+/// View model that manages library display state including sorting, layout, grouping, and refresh.
 @Observable
 final class LibraryViewModel {
 
@@ -25,10 +25,54 @@ final class LibraryViewModel {
         }
     }
 
+    // MARK: - Group Mode
+
+    enum GroupMode: String, CaseIterable {
+        case allBooks
+        case series
+        case authors
+        case narrators
+
+        var displayName: String {
+            switch self {
+            case .allBooks: "All Books"
+            case .series: "Series"
+            case .authors: "Authors"
+            case .narrators: "Narrators"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .allBooks: "books.vertical"
+            case .series: "text.book.closed"
+            case .authors: "person.2"
+            case .narrators: "mic"
+            }
+        }
+    }
+
+    // MARK: - BookGroup
+
+    struct BookGroup: Identifiable, Hashable {
+        let id: String // group name
+        let name: String
+        let books: [CachedBook]
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(id)
+        }
+
+        static func == (lhs: BookGroup, rhs: BookGroup) -> Bool {
+            lhs.id == rhs.id
+        }
+    }
+
     // MARK: - Properties
 
     var isGridView = true
     var sortOption: SortOption = .recentlyAdded
+    var groupMode: GroupMode = .allBooks
     var isRefreshing = false
 
     private let libraryService: LibraryService
@@ -41,12 +85,6 @@ final class LibraryViewModel {
 
     // MARK: - Refresh
 
-    /// Triggers a full library refresh from all servers.
-    ///
-    /// - Parameters:
-    ///   - servers: Active servers to fetch from.
-    ///   - serverService: Closure that creates an `APIClient` for a server.
-    ///   - modelContext: The SwiftData model context for persistence.
     func refresh(
         servers: [Server],
         serverService: (Server) -> APIClient?,
@@ -63,7 +101,6 @@ final class LibraryViewModel {
 
     // MARK: - Sorting
 
-    /// Returns the books sorted according to the current `sortOption`.
     func sortedBooks(_ books: [CachedBook]) -> [CachedBook] {
         switch sortOption {
         case .recentlyAdded:
@@ -77,9 +114,73 @@ final class LibraryViewModel {
         }
     }
 
+    // MARK: - Grouping
+
+    func groups(from books: [CachedBook]) -> [BookGroup] {
+        switch groupMode {
+        case .allBooks:
+            return []
+        case .series:
+            return groupBySeries(books)
+        case .authors:
+            return groupByKeyPath(books, keyPath: \.author)
+        case .narrators:
+            return groupByNarrator(books)
+        }
+    }
+
+    private func groupBySeries(_ books: [CachedBook]) -> [BookGroup] {
+        var dict: [String: [CachedBook]] = [:]
+        for book in books {
+            guard let seriesName = book.seriesName, !seriesName.isEmpty else { continue }
+            dict[seriesName, default: []].append(book)
+        }
+        return dict.map { name, books in
+            let sorted = books.sorted { lhs, rhs in
+                let lSeq = parseSequenceNumber(lhs.seriesSequence)
+                let rSeq = parseSequenceNumber(rhs.seriesSequence)
+                if lSeq != rSeq { return lSeq < rSeq }
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
+            return BookGroup(id: "series:\(name)", name: name, books: sorted)
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func groupByKeyPath(_ books: [CachedBook], keyPath: KeyPath<CachedBook, String>) -> [BookGroup] {
+        var dict: [String: [CachedBook]] = [:]
+        for book in books {
+            let key = book[keyPath: keyPath]
+            guard !key.isEmpty else { continue }
+            dict[key, default: []].append(book)
+        }
+        return dict.map { name, books in
+            let sorted = books.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            return BookGroup(id: "\(keyPath):\(name)", name: name, books: sorted)
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func groupByNarrator(_ books: [CachedBook]) -> [BookGroup] {
+        var dict: [String: [CachedBook]] = [:]
+        for book in books {
+            guard let narrator = book.narrator, !narrator.isEmpty else { continue }
+            dict[narrator, default: []].append(book)
+        }
+        return dict.map { name, books in
+            let sorted = books.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            return BookGroup(id: "narrator:\(name)", name: name, books: sorted)
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func parseSequenceNumber(_ seq: String?) -> Double {
+        guard let seq else { return Double.greatestFiniteMagnitude }
+        return Double(seq) ?? Double.greatestFiniteMagnitude
+    }
+
     // MARK: - Continue Listening
 
-    /// Returns books that are in progress (started but not finished), sorted by most recently updated.
     func continueListeningBooks(_ books: [CachedBook]) -> [CachedBook] {
         books
             .filter { book in
