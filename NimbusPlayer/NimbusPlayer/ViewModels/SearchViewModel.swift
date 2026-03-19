@@ -62,32 +62,37 @@ final class SearchViewModel {
         // Start with local results
         var merged = localResults
 
-        // Query servers for additional matches
-        await withTaskGroup(of: [LibraryItemResponse].self) { group in
-            for server in servers where server.isActive {
-                guard let client = serverService.client(for: server.id) else { continue }
-                group.addTask {
-                    var items: [LibraryItemResponse] = []
-                    guard let librariesResponse = try? await client.getLibraries() else { return [] }
-                    for lib in librariesResponse.libraries where lib.mediaType == "book" {
-                        if let response = try? await client.searchLibrary(libraryId: lib.id, query: trimmed) {
-                            items.append(contentsOf: response.book?.map(\.libraryItem) ?? [])
-                        }
-                    }
-                    return items
-                }
-            }
-            for await serverItems in group {
-                for item in serverItems {
-                    // Find the cached book by exact libraryItemId match (not fuzzy).
-                    // Fuzzy BookMatcher falsely matches different books in the same series.
-                    guard let cached = allBooks.first(where: { book in
-                        book.serverMappings.contains { $0.libraryItemId == item.id }
-                    }) else { continue }
+        // Only query servers if at least one is reachable
+        let hasReachableServer = servers.contains { server in
+            server.isActive && serverService.serverStatuses[server.id] == .connected
+        }
 
-                    let alreadyPresent = merged.contains { $0.id == cached.id }
-                    if !alreadyPresent {
-                        merged.append(cached)
+        if hasReachableServer {
+            await withTaskGroup(of: [LibraryItemResponse].self) { group in
+                for server in servers where server.isActive {
+                    guard serverService.serverStatuses[server.id] == .connected,
+                          let client = serverService.client(for: server.id) else { continue }
+                    group.addTask {
+                        var items: [LibraryItemResponse] = []
+                        guard let librariesResponse = try? await client.getLibraries() else { return [] }
+                        for lib in librariesResponse.libraries where lib.mediaType == "book" {
+                            if let response = try? await client.searchLibrary(libraryId: lib.id, query: trimmed) {
+                                items.append(contentsOf: response.book?.map(\.libraryItem) ?? [])
+                            }
+                        }
+                        return items
+                    }
+                }
+                for await serverItems in group {
+                    for item in serverItems {
+                        guard let cached = allBooks.first(where: { book in
+                            book.serverMappings.contains { $0.libraryItemId == item.id }
+                        }) else { continue }
+
+                        let alreadyPresent = merged.contains { $0.id == cached.id }
+                        if !alreadyPresent {
+                            merged.append(cached)
+                        }
                     }
                 }
             }
