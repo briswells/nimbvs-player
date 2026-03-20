@@ -31,6 +31,9 @@ struct NowPlayingView: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var viewModel = NowPlayingViewModel()
+    @State private var showBookmarks = false
+    @State private var showAddBookmark = false
+    @State private var bookmarkNote = ""
 
     // MARK: - Computed Properties
 
@@ -41,9 +44,9 @@ struct NowPlayingView: View {
 
     // MARK: - Methods
 
-    private func addBookmark() {
+    private func addBookmark(note: String? = nil) {
         guard let book = playerService.currentBook else { return }
-        let bookmark = Bookmark(book: book, timestamp: playerService.currentTime)
+        let bookmark = Bookmark(book: book, timestamp: playerService.currentTime, note: note)
         modelContext.insert(bookmark)
         try? modelContext.save()
     }
@@ -83,6 +86,22 @@ struct NowPlayingView: View {
             SleepTimerSheet()
                 .environment(playerService)
                 .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showBookmarks) {
+            BookmarkListSheet(playerService: playerService, modelContext: modelContext)
+                .presentationDetents([.medium, .large])
+        }
+        .alert("Add Bookmark", isPresented: $showAddBookmark) {
+            TextField("Note (optional)", text: $bookmarkNote)
+            Button("Save") {
+                addBookmark(note: bookmarkNote.isEmpty ? nil : bookmarkNote)
+                bookmarkNote = ""
+            }
+            Button("Cancel", role: .cancel) {
+                bookmarkNote = ""
+            }
+        } message: {
+            Text("at \(viewModel.formatTime(playerService.currentTime))")
         }
     }
 
@@ -381,13 +400,36 @@ struct NowPlayingView: View {
         HStack(spacing: NimbusTheme.Dimensions.paddingLarge) {
             Spacer()
 
-            // Bookmark
-            Button {
-                addBookmark()
+            // Bookmark menu
+            Menu {
+                Button {
+                    showAddBookmark = true
+                } label: {
+                    Label("Add Bookmark", systemImage: "plus")
+                }
+
+                let count = playerService.currentBook?.bookmarks.count ?? 0
+                Button {
+                    showBookmarks = true
+                } label: {
+                    Label("View Bookmarks (\(count))", systemImage: "list.bullet")
+                }
+                .disabled(count == 0)
             } label: {
                 VStack(spacing: 4) {
-                    Image(systemName: hasBookmarkAtCurrentTime ? "bookmark.fill" : "bookmark")
-                        .font(.body)
+                    ZStack {
+                        Image(systemName: hasBookmarkAtCurrentTime ? "bookmark.fill" : "bookmark")
+                            .font(.body)
+                        if let count = playerService.currentBook?.bookmarks.count, count > 0 {
+                            Text("\(count)")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(3)
+                                .background(NimbusTheme.Colors.accentPink)
+                                .clipShape(Circle())
+                                .offset(x: 10, y: -8)
+                        }
+                    }
                     Text("Bookmark")
                         .font(.caption2)
                 }
