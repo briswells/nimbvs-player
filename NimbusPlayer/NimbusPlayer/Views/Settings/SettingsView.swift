@@ -12,6 +12,11 @@ struct SettingsView: View {
                     NavigationLink("Manage Servers") {
                         ServerListView()
                     }
+                    NavigationLink {
+                        ListeningStatsView()
+                    } label: {
+                        Label("Listening Stats", systemImage: "chart.bar.fill")
+                    }
                 }
 
                 Section("Playback") {

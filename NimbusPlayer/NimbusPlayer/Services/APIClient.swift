@@ -326,6 +326,11 @@ final class APIClient {
         try await request(UserResponse.self, method: "GET", path: "/api/me")
     }
 
+    /// Fetches listening statistics.
+    func getListeningStats() async throws -> ListeningStatsResponse {
+        try await request(ListeningStatsResponse.self, method: "GET", path: "/api/me/listening-stats")
+    }
+
     // MARK: - URL Builders
 
     /// Returns a streaming URL for the given content URL path, with the authentication token as a query parameter.

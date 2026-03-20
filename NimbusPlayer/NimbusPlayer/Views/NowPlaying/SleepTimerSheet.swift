@@ -1,19 +1,11 @@
 import SwiftUI
 
-// MARK: - SleepTimerSheet
-
-/// A sheet allowing the user to set a sleep timer or cancel the active one.
-///
-/// Provides preset durations (5, 10, 15, 30, 60 minutes) and an end-of-chapter
-/// option. If a timer is active, shows a cancel button with remaining time.
 struct SleepTimerSheet: View {
-
-    // MARK: - Properties
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AudioPlayerService.self) private var playerService
+    @State private var customMinutes: Double = 20
 
-    /// Preset sleep timer options in minutes.
     private let presets: [(label: String, minutes: Double)] = [
         ("5 minutes", 5),
         ("10 minutes", 10),
@@ -22,19 +14,15 @@ struct SleepTimerSheet: View {
         ("60 minutes", 60)
     ]
 
-    // MARK: - Body
-
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Active timer status
                 if let remaining = playerService.sleepTimerRemaining {
                     activeTimerBanner(remaining: remaining)
                         .padding(.bottom, NimbusTheme.Dimensions.paddingMedium)
                 }
 
                 List {
-                    // Duration presets
                     Section {
                         ForEach(presets, id: \.minutes) { preset in
                             Button {
@@ -45,10 +33,8 @@ struct SleepTimerSheet: View {
                                     Image(systemName: "clock")
                                         .foregroundStyle(NimbusTheme.Colors.textTertiary)
                                         .frame(width: 24)
-
                                     Text(preset.label)
                                         .foregroundStyle(NimbusTheme.Colors.textPrimary)
-
                                     Spacer()
                                 }
                             }
@@ -64,17 +50,43 @@ struct SleepTimerSheet: View {
                                 Image(systemName: "text.line.last.and.arrowtriangle.forward")
                                     .foregroundStyle(NimbusTheme.Colors.textTertiary)
                                     .frame(width: 24)
-
                                 Text("End of chapter")
                                     .foregroundStyle(NimbusTheme.Colors.textPrimary)
-
                                 Spacer()
                             }
                         }
                         .listRowBackground(NimbusTheme.Colors.surfaceElevated)
                     }
 
-                    // Cancel button (only when timer is active)
+                    // Custom time
+                    Section("Custom") {
+                        HStack {
+                            Text("\(Int(customMinutes)) minutes")
+                                .foregroundStyle(NimbusTheme.Colors.textPrimary)
+                            Spacer()
+                        }
+                        .listRowBackground(NimbusTheme.Colors.surfaceElevated)
+
+                        Slider(value: $customMinutes, in: 1...120, step: 1)
+                            .tint(NimbusTheme.Colors.accentPink)
+                            .listRowBackground(NimbusTheme.Colors.surfaceElevated)
+
+                        Button {
+                            playerService.setSleepTimer(minutes: customMinutes)
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Text("Set \(Int(customMinutes)) min timer")
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(NimbusTheme.Colors.accentPink)
+                                Spacer()
+                            }
+                        }
+                        .listRowBackground(NimbusTheme.Colors.surfaceElevated)
+                    }
+
+                    // Cancel button
                     if playerService.sleepTimerRemaining != nil {
                         Section {
                             Button(role: .destructive) {
@@ -101,16 +113,12 @@ struct SleepTimerSheet: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .foregroundStyle(NimbusTheme.Colors.accentPink)
+                    Button("Done") { dismiss() }
+                        .foregroundStyle(NimbusTheme.Colors.accentPink)
                 }
             }
         }
     }
-
-    // MARK: - Active Timer Banner
 
     @ViewBuilder
     private func activeTimerBanner(remaining: TimeInterval) -> some View {
@@ -137,8 +145,6 @@ struct SleepTimerSheet: View {
         .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
         .padding(.top, NimbusTheme.Dimensions.paddingMedium)
     }
-
-    // MARK: - Formatting
 
     private func formatRemaining(_ seconds: TimeInterval) -> String {
         guard seconds > 0 else { return "0:00" }

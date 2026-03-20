@@ -66,6 +66,7 @@ struct NowPlayingView: View {
                         chapterPill
                         scrubber
                         transportControls
+                        sleepTimerCountdown
                         bottomActions
                     }
                     .padding(.horizontal, NimbusTheme.Dimensions.paddingLarge)
@@ -311,6 +312,59 @@ struct NowPlayingView: View {
                     .frame(width: 50, height: 44)
             }
         }
+    }
+
+    // MARK: - Sleep Timer Countdown
+
+    @ViewBuilder
+    private var sleepTimerCountdown: some View {
+        if let remaining = playerService.sleepTimerRemaining {
+            HStack(spacing: 10) {
+                Image(systemName: "moon.fill")
+                    .font(.caption)
+                    .foregroundStyle(NimbusTheme.Colors.accentPink)
+
+                if remaining == -1 {
+                    Text("Sleep at end of chapter")
+                        .font(.caption)
+                        .foregroundStyle(NimbusTheme.Colors.textSecondary)
+                } else {
+                    Text("Sleep in \(formatCountdown(remaining))")
+                        .font(.caption)
+                        .foregroundStyle(NimbusTheme.Colors.textSecondary)
+                        .monospacedDigit()
+                }
+
+                Spacer()
+
+                // Extend button
+                if playerService.lastSleepDuration > 0 {
+                    Button {
+                        playerService.setSleepTimer(minutes: playerService.lastSleepDuration)
+                    } label: {
+                        Text("+\(Int(playerService.lastSleepDuration))m")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(NimbusTheme.Colors.accentPink)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(NimbusTheme.Colors.accentPink.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(NimbusTheme.Colors.surfaceOverlay)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func formatCountdown(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        let m = total / 60
+        let s = total % 60
+        return String(format: "%d:%02d", m, s)
     }
 
     // MARK: - Bottom Actions
