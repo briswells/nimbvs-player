@@ -29,6 +29,7 @@ final class AudioPlayerService {
 
     // Sleep timer
     var sleepTimerRemaining: TimeInterval?
+    private(set) var lastSleepDuration: TimeInterval = 0
     private var sleepTimer: Timer?
 
     // MARK: - Private
@@ -253,6 +254,7 @@ final class AudioPlayerService {
     /// Starts a countdown sleep timer that will fade out and pause after the given number of minutes.
     func setSleepTimer(minutes: TimeInterval) {
         cancelSleepTimer()
+        lastSleepDuration = minutes
         sleepTimerRemaining = minutes * 60
         sleepTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
             guard let self else { timer.invalidate(); return }
