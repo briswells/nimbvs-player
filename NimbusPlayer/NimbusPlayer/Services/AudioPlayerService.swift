@@ -40,6 +40,7 @@ final class AudioPlayerService {
     private var statusObservation: NSKeyValueObservation?
     private var localFileURLs: [URL] = []
     private(set) var isOffline = false
+    private var nowPlayingArtwork: MPMediaItemArtwork?
 
     /// Weak reference to the server service, set externally to avoid a strong retain cycle.
     private weak var _serverService: ServerService?
@@ -85,6 +86,7 @@ final class AudioPlayerService {
         guard let (trackIndex, trackLocalTime) = findTrack(for: resumeTime) else { return }
 
         setupAudioSession()
+        loadNowPlayingArtwork()
         loadTrack(at: trackIndex, seekTo: trackLocalTime, serverId: serverId, serverService: serverService)
     }
 
@@ -153,6 +155,7 @@ final class AudioPlayerService {
         guard let (trackIndex, trackLocalTime) = findTrack(for: resumeTime) else { return }
 
         setupAudioSession()
+        loadNowPlayingArtwork()
         loadLocalTrack(at: trackIndex, seekTo: trackLocalTime)
     }
 
@@ -594,7 +597,37 @@ final class AudioPlayerService {
         if let chapter = currentChapter {
             info[MPMediaItemPropertyAlbumTitle] = chapter.title
         }
+        if let artwork = nowPlayingArtwork {
+            info[MPMediaItemPropertyArtwork] = artwork
+        }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    /// Loads the book's cover image for the lock screen / Control Center.
+    private func loadNowPlayingArtwork() {
+        guard let book = currentBook,
+              let mapping = book.preferredMapping,
+              let serverId = mapping.server?.id,
+              let serverService = _serverService,
+              let client = serverService.client(for: serverId),
+              let url = client.coverURL(itemId: mapping.libraryItemId, width: 600) else { return }
+
+        let cacheKey = "\(serverId.uuidString)_\(mapping.libraryItemId)_600"
+
+        Task {
+            if let image = await ImageCacheService.shared.cachedImage(cacheKey: cacheKey) {
+                setArtwork(image)
+            } else if let image = await ImageCacheService.shared.cachedImageWithPrefix("\(serverId.uuidString)_\(mapping.libraryItemId)") {
+                setArtwork(image)
+            } else if let image = try? await ImageCacheService.shared.image(for: url, cacheKey: cacheKey) {
+                setArtwork(image)
+            }
+        }
+    }
+
+    private func setArtwork(_ image: UIImage) {
+        nowPlayingArtwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        updateNowPlayingInfo()
     }
 
     // MARK: - Private Helpers
