@@ -40,6 +40,7 @@ final class AudioPlayerService {
     private var pausedAt: Date?
     private var statusObservation: NSKeyValueObservation?
     private var localFileURLs: [URL] = []
+    private var isSeeking = false
     private(set) var isOffline = false
     private var nowPlayingArtwork: MPMediaItemArtwork?
 
@@ -205,15 +206,19 @@ final class AudioPlayerService {
     func seek(to globalTime: TimeInterval) {
         guard let (trackIndex, localTime) = findTrack(for: globalTime) else { return }
 
+        isSeeking = true
+        currentTime = globalTime
+
         if trackIndex != currentTrackIndex, let serverId = sessionServerId {
-            // Need to load a different track
             if let serverService = findServerService() {
                 loadTrack(at: trackIndex, seekTo: localTime, serverId: serverId, serverService: serverService)
             }
+            isSeeking = false
         } else {
             let cmTime = CMTime(seconds: localTime, preferredTimescale: 600)
-            player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
-            currentTime = globalTime
+            player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                self?.isSeeking = false
+            }
         }
         updateNowPlayingInfo()
     }
@@ -467,7 +472,7 @@ final class AudioPlayerService {
     private func addTimeObserver() {
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            guard let self, self.currentTrackIndex < self.tracks.count else { return }
+            guard let self, !self.isSeeking, self.currentTrackIndex < self.tracks.count else { return }
             let trackTime = time.seconds
             let track = self.tracks[self.currentTrackIndex]
             self.currentTime = track.startOffset + trackTime
