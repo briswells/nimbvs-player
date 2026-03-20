@@ -1,3 +1,4 @@
+import BackgroundTasks
 import SwiftData
 import SwiftUI
 import UIKit
@@ -14,8 +15,11 @@ struct NimbusPlayerApp: App {
 
     @Environment(\.scenePhase) private var scenePhase
 
+    private static let bgSyncTaskId = "com.nimbvs.player.progressSync"
+
     init() {
         configureGlobalAppearance()
+        registerBackgroundTasks()
     }
 
     var body: some Scene {
@@ -52,7 +56,6 @@ struct NimbusPlayerApp: App {
     }
 
     private func configureGlobalAppearance() {
-        // Set List/Form backgrounds to our navy theme in dark mode
         let navyBackground = UIColor { traits in
             traits.userInterfaceStyle == .dark
                 ? UIColor(red: 0x1a / 255.0, green: 0x1a / 255.0, blue: 0x2e / 255.0, alpha: 1)
@@ -69,20 +72,65 @@ struct NimbusPlayerApp: App {
         UITableViewCell.appearance().backgroundColor = navyRowBackground
     }
 
+    // MARK: - Background Tasks
+
+    private func registerBackgroundTasks() {
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: Self.bgSyncTaskId,
+            using: nil
+        ) { task in
+            guard let refreshTask = task as? BGAppRefreshTask else {
+                task.setTaskCompleted(success: true)
+                return
+            }
+            self.handleBackgroundSync(refreshTask)
+        }
+    }
+
+    private func scheduleBackgroundSync() {
+        let request = BGAppRefreshTaskRequest(identifier: Self.bgSyncTaskId)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60) // 15 minutes
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            // Scheduling can fail if the user has disabled background refresh
+        }
+    }
+
+    private func handleBackgroundSync(_ task: BGAppRefreshTask) {
+        // Schedule the next one
+        scheduleBackgroundSync()
+
+        let syncTask = Task {
+            let container = try ModelContainer(for:
+                Server.self, CachedBook.self, ServerBookMapping.self,
+                ListeningProgress.self, DownloadModel.self, Bookmark.self
+            )
+            let context = ModelContext(container)
+            let servers = (try? context.fetch(FetchDescriptor<Server>())) ?? []
+
+            serverService.loadClients(servers: servers)
+            await progressService.flushPendingSyncs(modelContext: context, serverService: serverService)
+        }
+
+        task.expirationHandler = {
+            syncTask.cancel()
+        }
+
+        Task {
+            _ = await syncTask.result
+            task.setTaskCompleted(success: true)
+        }
+    }
+
+    // MARK: - Scene Phase
+
     private func handleScenePhase(_ phase: ScenePhase) {
         switch phase {
         case .active:
-            // Validate server connections on foreground
-            Task {
-                // Server validation happens when views load via their own .task modifiers
-            }
+            break
         case .background:
-            // Final progress sync when going to background
-            if audioPlayerService.currentBook != nil {
-                Task {
-                    // Progress service handles final sync via its own lifecycle
-                }
-            }
+            scheduleBackgroundSync()
         case .inactive:
             break
         @unknown default:
