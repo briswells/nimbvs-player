@@ -303,6 +303,12 @@ final class DownloadService: NSObject, URLSessionDownloadDelegate {
             .appendingPathComponent(bookId.uuidString, isDirectory: true)
     }
 
+    /// Removes all downloaded files for a book by ID.
+    func removeAllFiles(bookId: UUID) {
+        let bookDir = downloadsDirectory(for: bookId)
+        try? FileManager.default.removeItem(at: bookDir)
+    }
+
     /// Removes all downloaded files for an active download task.
     private func cleanupFiles(for download: DownloadTask) {
         let bookDir = downloadsDirectory(for: download.bookId)

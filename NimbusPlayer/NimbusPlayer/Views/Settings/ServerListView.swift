@@ -5,6 +5,7 @@ struct ServerListView: View {
     @Query private var servers: [Server]
     @Environment(\.modelContext) private var modelContext
     @Environment(ServerService.self) private var serverService
+    @Environment(DownloadService.self) private var downloadService
     @State private var showAddServer = false
 
     var body: some View {
@@ -61,6 +62,32 @@ struct ServerListView: View {
     private func deleteServers(at offsets: IndexSet) {
         for index in offsets {
             let server = servers[index]
+
+            // Find all books that ONLY exist on this server (no other mappings)
+            let allMappings = server.bookMappings
+            for mapping in allMappings {
+                if let book = mapping.book {
+                    // Remove downloaded files for this book
+                    downloadService.removeAllFiles(bookId: book.id)
+
+                    // If this is the only server mapping, delete the whole book
+                    if book.serverMappings.count <= 1 {
+                        // Delete related models
+                        if let progress = book.progress {
+                            modelContext.delete(progress)
+                        }
+                        for bookmark in book.bookmarks {
+                            modelContext.delete(bookmark)
+                        }
+                        for download in book.downloads {
+                            modelContext.delete(download)
+                        }
+                        modelContext.delete(book)
+                    }
+                }
+                modelContext.delete(mapping)
+            }
+
             serverService.removeServer(server)
             modelContext.delete(server)
         }
