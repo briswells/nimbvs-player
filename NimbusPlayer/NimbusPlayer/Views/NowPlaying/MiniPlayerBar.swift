@@ -99,6 +99,7 @@ struct MiniPlayerBar: View {
                 serverId: serverId,
                 width: 40
             )
+            .id(book.id)
         } else {
             RoundedRectangle(cornerRadius: NimbusTheme.Dimensions.smallCornerRadius)
                 .fill(NimbusTheme.Colors.surfaceOverlay)
