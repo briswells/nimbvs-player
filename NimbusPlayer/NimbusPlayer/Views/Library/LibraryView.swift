@@ -42,6 +42,7 @@ struct LibraryView: View {
                                 }
                                 if viewModel.groupMode == .allBooks {
                                     continueListeningSection
+                                    nextInSeriesSection
                                 }
                                 libraryContent
                             }
@@ -195,6 +196,31 @@ struct LibraryView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 16) {
                         ForEach(inProgressBooks) { book in
+                            NavigationLink(value: book) {
+                                ContinueListeningRow(book: book)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
+                }
+            }
+        }
+    }
+
+    // MARK: - Next in Series
+
+    @ViewBuilder
+    private var nextInSeriesSection: some View {
+        let nextBooks = viewModel.nextInSeriesBooks(visibleBooks)
+        if !nextBooks.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionHeader("Next in Series")
+                    .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 16) {
+                        ForEach(nextBooks) { book in
                             NavigationLink(value: book) {
                                 ContinueListeningRow(book: book)
                             }
