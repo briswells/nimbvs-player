@@ -27,7 +27,6 @@ struct BookDetailView: View {
     @State private var showSyncPrompt = false
     @State private var pendingRemoteProgress: MediaProgressResponse?
     @State private var showNowPlaying = false
-    @State private var showSeriesDetail = false
     @State private var selectedSeriesGroup: LibraryViewModel.BookGroup?
 
     // MARK: - Body
@@ -80,10 +79,16 @@ struct BookDetailView: View {
         .fullScreenCover(isPresented: $showNowPlaying) {
             NowPlayingView()
         }
-        .navigationDestination(isPresented: $showSeriesDetail) {
-            if let group = selectedSeriesGroup {
+        .sheet(item: $selectedSeriesGroup) { group in
+            NavigationStack {
                 GroupDetailView(group: group)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { selectedSeriesGroup = nil }
+                        }
+                    }
             }
+            .environment(serverService)
         }
     }
 
@@ -137,28 +142,31 @@ struct BookDetailView: View {
             }
 
             if let seriesName = book.seriesName, !seriesName.isEmpty {
-                Button {
-                    selectedSeriesGroup = seriesGroup(for: seriesName)
-                    showSeriesDetail = true
-                } label: {
-                    seriesBadge(name: seriesName, sequence: book.seriesSequence)
-                }
+                seriesBadge(name: seriesName, sequence: book.seriesSequence)
+                    .onTapGesture {
+                        selectedSeriesGroup = seriesGroup(for: seriesName)
+                    }
             }
         }
     }
 
     private func seriesBadge(name: String, sequence: String?) -> some View {
         let label = sequence != nil ? "\(name) #\(sequence!)" : name
-        return Text(label)
-            .font(.caption)
-            .fontWeight(.medium)
-            .foregroundStyle(NimbusTheme.Colors.accentPink)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(
-                Capsule()
-                    .fill(NimbusTheme.Colors.accentPink.opacity(0.15))
-            )
+        return HStack(spacing: 4) {
+            Text(label)
+                .font(.caption)
+                .fontWeight(.medium)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .bold))
+        }
+        .foregroundStyle(NimbusTheme.Colors.accentPink)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(NimbusTheme.Colors.accentPink.opacity(0.15))
+        )
+        .contentShape(Capsule())
     }
 
     // MARK: - Stats Section

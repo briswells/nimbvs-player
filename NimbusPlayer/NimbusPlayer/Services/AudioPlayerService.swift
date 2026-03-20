@@ -509,6 +509,30 @@ final class AudioPlayerService {
             print("Audio session setup failed: \(error)")
         }
 
+        // Handle audio interruptions (phone calls, Siri, other apps)
+        NotificationCenter.default.removeObserver(self, name: AVAudioSession.interruptionNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            guard let info = notification.userInfo,
+                  let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+
+            switch type {
+            case .began:
+                self?.isPlaying = false
+            case .ended:
+                let options = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                if AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume) {
+                    self?.play()
+                }
+            @unknown default:
+                break
+            }
+        }
+
         setupRemoteCommands()
     }
 
