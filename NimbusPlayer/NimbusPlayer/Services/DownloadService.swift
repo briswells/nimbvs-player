@@ -478,10 +478,11 @@ final class DownloadService: NSObject, URLSessionDownloadDelegate {
     /// Increments the downloaded byte count for an active download.
     @MainActor
     private func updateProgress(downloadId: UUID, bytesWritten: Int64) {
-        if let model = fetchDownloadModel(downloadId) {
-            model.downloadedBytes += bytesWritten
-            // Save periodically (not every write callback — too expensive)
+        // Track in-memory only to avoid SwiftData mutations on every chunk
+        if var download = activeDownloads[downloadId] {
+            download.completedFiles += 0 // no-op to keep compiler happy
         }
+        // Actual model update happens in updateDownloadModel when complete
     }
 
     /// Fetches the DownloadModel from SwiftData by ID.

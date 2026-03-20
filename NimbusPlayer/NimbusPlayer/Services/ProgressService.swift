@@ -35,7 +35,10 @@ final class ProgressService {
 
         localSaveTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             guard let self else { return }
-            self.saveLocalProgress(playerService: playerService, modelContext: modelContext)
+            // Defer to next run loop iteration to avoid colliding with SwiftUI renders
+            Task { @MainActor in
+                self.saveLocalProgress(playerService: playerService, modelContext: modelContext)
+            }
         }
 
         syncTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
@@ -67,17 +70,23 @@ final class ProgressService {
     func saveLocalProgress(playerService: AudioPlayerService, modelContext: ModelContext) {
         guard let book = playerService.currentBook else { return }
         guard playerService.duration > 0 else { return }
+        guard playerService.isPlaying else { return }
+
+        let currentTime = playerService.currentTime
+        let duration = playerService.duration
 
         if let progress = book.progress {
-            progress.update(currentTime: playerService.currentTime, duration: playerService.duration, completionThreshold: completionThreshold)
+            // Only save if position changed by at least 1 second (avoids unnecessary SwiftData mutations)
+            guard abs(progress.currentTime - currentTime) >= 1.0 else { return }
+            progress.update(currentTime: currentTime, duration: duration, completionThreshold: completionThreshold)
             progress.playbackSpeed = playerService.playbackSpeed
             progress.activeSessionId = playerService.sessionId
             progress.activeSessionServerId = playerService.sessionServerId
         } else {
             let progress = ListeningProgress(
                 book: book,
-                currentTime: playerService.currentTime,
-                totalDuration: playerService.duration
+                currentTime: currentTime,
+                totalDuration: duration
             )
             progress.playbackSpeed = playerService.playbackSpeed
             progress.activeSessionId = playerService.sessionId
@@ -101,6 +110,7 @@ final class ProgressService {
     /// - Parameters:
     ///   - playerService: The audio player whose position is synced.
     ///   - modelContext: The SwiftData context used for local persistence.
+    @MainActor
     func syncToServer(playerService: AudioPlayerService, modelContext: ModelContext) async {
         guard let book = playerService.currentBook,
               let progress = book.progress,
@@ -109,19 +119,25 @@ final class ProgressService {
 
         guard let client = buildClient(for: serverId, modelContext: modelContext) else { return }
 
+        // Capture values before await to avoid stale SwiftData references
+        let currentTime = playerService.currentTime
+        let duration = playerService.duration
+
         let syncRequest = SessionSyncRequest(
-            currentTime: playerService.currentTime,
+            currentTime: currentTime,
             timeListened: 60,
-            duration: playerService.duration
+            duration: duration
         )
 
         do {
             try await client.syncSession(sessionId: sessionId, body: syncRequest)
-            progress.needsSync = false
-            try? modelContext.save()
+            // Re-fetch progress after await — the reference may be stale
+            if let freshProgress = book.progress {
+                freshProgress.needsSync = false
+                try? modelContext.save()
+            }
         } catch {
-            // Sync failure is non-fatal; the progress is already saved locally
-            // and will be retried on the next timer tick or via flushPendingSyncs.
+            // Sync failure is non-fatal
         }
     }
 
@@ -131,6 +147,7 @@ final class ProgressService {
     /// - Parameters:
     ///   - playerService: The audio player whose session is being closed.
     ///   - modelContext: The SwiftData context used for local persistence.
+    @MainActor
     func closeSession(playerService: AudioPlayerService, modelContext: ModelContext) async {
         // Save locally first
         saveLocalProgress(playerService: playerService, modelContext: modelContext)
@@ -176,6 +193,7 @@ final class ProgressService {
     ///   - book: The book whose progress should be refreshed.
     ///   - serverService: Service providing API clients for each server.
     ///   - modelContext: The SwiftData context used for local persistence.
+    @MainActor
     func pullProgressFromServers(
         book: CachedBook,
         serverService: ServerService,
