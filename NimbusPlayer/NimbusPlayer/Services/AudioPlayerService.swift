@@ -42,6 +42,10 @@ final class AudioPlayerService {
     private(set) var isOffline = false
     private var nowPlayingArtwork: MPMediaItemArtwork?
 
+    // Cached metadata for safe background access (avoids touching SwiftData)
+    private var cachedTitle: String = ""
+    private var cachedAuthor: String = ""
+
     /// Weak reference to the server service, set externally to avoid a strong retain cycle.
     private weak var _serverService: ServerService?
 
@@ -71,6 +75,8 @@ final class AudioPlayerService {
         startTime: TimeInterval? = nil
     ) {
         self.currentBook = book
+        self.cachedTitle = book.title
+        self.cachedAuthor = book.author
         self.sessionId = session.id
         self.sessionServerId = serverId
         self.tracks = session.audioTracks.sorted(by: { $0.index < $1.index })
@@ -97,6 +103,8 @@ final class AudioPlayerService {
         startTime: TimeInterval? = nil
     ) {
         self.currentBook = book
+        self.cachedTitle = book.title
+        self.cachedAuthor = book.author
         self.sessionId = nil
         self.sessionServerId = nil
 
@@ -589,8 +597,8 @@ final class AudioPlayerService {
     /// Updates the system Now Playing info center with the current book, chapter, and playback state.
     private func updateNowPlayingInfo() {
         var info = [String: Any]()
-        info[MPMediaItemPropertyTitle] = currentBook?.title ?? ""
-        info[MPMediaItemPropertyArtist] = currentBook?.author ?? ""
+        info[MPMediaItemPropertyTitle] = cachedTitle
+        info[MPMediaItemPropertyArtist] = cachedAuthor
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
         info[MPMediaItemPropertyPlaybackDuration] = duration
         info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? playbackSpeed : 0
