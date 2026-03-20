@@ -142,22 +142,29 @@ struct BookDetailView: View {
             }
 
             if let seriesName = book.seriesName, !seriesName.isEmpty {
-                seriesBadge(name: seriesName, sequence: book.seriesSequence)
-                    .onTapGesture {
-                        selectedSeriesGroup = seriesGroup(for: seriesName)
-                    }
+                let group = seriesGroup(for: seriesName)
+                if group.books.count > 1 {
+                    seriesBadge(name: seriesName, sequence: book.seriesSequence, tappable: true)
+                        .onTapGesture {
+                            selectedSeriesGroup = group
+                        }
+                } else {
+                    seriesBadge(name: seriesName, sequence: book.seriesSequence)
+                }
             }
         }
     }
 
-    private func seriesBadge(name: String, sequence: String?) -> some View {
+    private func seriesBadge(name: String, sequence: String?, tappable: Bool = false) -> some View {
         let label = sequence != nil ? "\(name) #\(sequence!)" : name
         return HStack(spacing: 4) {
             Text(label)
                 .font(.caption)
                 .fontWeight(.medium)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .bold))
+            if tappable {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+            }
         }
         .foregroundStyle(NimbusTheme.Colors.accentPink)
         .padding(.horizontal, 12)
