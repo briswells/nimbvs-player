@@ -18,6 +18,7 @@ final class AudioPlayerService {
     private(set) var duration: TimeInterval = 0
     private(set) var currentTrackIndex: Int = 0
     private(set) var isBuffering = false
+    var didFinishBook = false
 
     var currentBook: CachedBook?
     var playbackSpeed: Double = 1.0
@@ -79,6 +80,7 @@ final class AudioPlayerService {
         self.currentBook = book
         self.cachedTitle = book.title
         self.cachedAuthor = book.author
+        self.didFinishBook = false
         self.sessionId = session.id
         self.sessionServerId = serverId
         self.tracks = session.audioTracks.sorted(by: { $0.index < $1.index })
@@ -107,6 +109,7 @@ final class AudioPlayerService {
         self.currentBook = book
         self.cachedTitle = book.title
         self.cachedAuthor = book.author
+        self.didFinishBook = false
         self.sessionId = nil
         self.sessionServerId = nil
 
@@ -462,6 +465,7 @@ final class AudioPlayerService {
         } else {
             // Book finished
             pause()
+            didFinishBook = true
         }
     }
 

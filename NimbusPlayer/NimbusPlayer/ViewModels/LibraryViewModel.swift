@@ -32,6 +32,7 @@ final class LibraryViewModel {
         case series
         case authors
         case narrators
+        case genres
 
         var displayName: String {
             switch self {
@@ -39,6 +40,7 @@ final class LibraryViewModel {
             case .series: "Series"
             case .authors: "Authors"
             case .narrators: "Narrators"
+            case .genres: "Genres"
             }
         }
 
@@ -48,6 +50,7 @@ final class LibraryViewModel {
             case .series: "text.book.closed"
             case .authors: "person.2"
             case .narrators: "mic"
+            case .genres: "tag"
             }
         }
     }
@@ -126,6 +129,8 @@ final class LibraryViewModel {
             return groupBySplitField(books, label: "author") { $0.author }
         case .narrators:
             return groupBySplitField(books, label: "narrator") { $0.narrator ?? "" }
+        case .genres:
+            return groupByGenres(books)
         }
     }
 
@@ -162,6 +167,20 @@ final class LibraryViewModel {
         return dict.map { name, books in
             let sorted = books.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
             return BookGroup(id: "\(label):\(name)", name: name, books: sorted)
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func groupByGenres(_ books: [CachedBook]) -> [BookGroup] {
+        var dict: [String: [CachedBook]] = [:]
+        for book in books {
+            for genre in book.genres where !genre.isEmpty {
+                dict[genre, default: []].append(book)
+            }
+        }
+        return dict.map { name, books in
+            let sorted = books.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            return BookGroup(id: "genre:\(name)", name: name, books: sorted)
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }

@@ -29,11 +29,13 @@ struct NowPlayingView: View {
     @Environment(AudioPlayerService.self) private var playerService
     @Environment(ServerService.self) private var serverService
     @Environment(\.modelContext) private var modelContext
+    @Query private var allBooks: [CachedBook]
 
     @State private var viewModel = NowPlayingViewModel()
     @State private var showBookmarks = false
     @State private var showAddBookmark = false
     @State private var bookmarkNote = ""
+    @State private var showSpeedPicker = false
 
     // MARK: - Computed Properties
 
@@ -70,6 +72,7 @@ struct NowPlayingView: View {
                         scrubber
                         transportControls
                         sleepTimerCountdown
+                        nextInSeriesBanner
                         bottomActions
                     }
                     .padding(.horizontal, NimbusTheme.Dimensions.paddingLarge)
@@ -90,6 +93,10 @@ struct NowPlayingView: View {
         .sheet(isPresented: $showBookmarks) {
             BookmarkListSheet(playerService: playerService, modelContext: modelContext)
                 .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showSpeedPicker) {
+            SpeedPickerSheet(playerService: playerService)
+                .presentationDetents([.height(200)])
         }
         .alert("Add Bookmark", isPresented: $showAddBookmark) {
             TextField("Note (optional)", text: $bookmarkNote)
@@ -256,10 +263,24 @@ struct NowPlayingView: View {
 
     private var transportControls: some View {
         HStack(spacing: 0) {
-            // Speed button
-            Button {
-                let next = viewModel.nextSpeed(after: playerService.playbackSpeed)
-                playerService.setPlaybackSpeed(next)
+            // Speed button — tap to cycle, long press for custom
+            Menu {
+                ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0], id: \.self) { speed in
+                    Button {
+                        playerService.setPlaybackSpeed(speed)
+                    } label: {
+                        HStack {
+                            Text(viewModel.formatSpeed(speed))
+                            if abs(playerService.playbackSpeed - speed) < 0.01 {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+                Divider()
+                Button("Custom Speed...") {
+                    showSpeedPicker = true
+                }
             } label: {
                 Text(viewModel.formatSpeed(playerService.playbackSpeed))
                     .font(.subheadline)
@@ -331,6 +352,67 @@ struct NowPlayingView: View {
                     .frame(width: 50, height: 44)
             }
         }
+    }
+
+    // MARK: - Next In Series
+
+    @ViewBuilder
+    private var nextInSeriesBanner: some View {
+        if playerService.didFinishBook, let nextBook = findNextInSeries() {
+            VStack(spacing: 8) {
+                Text("Up Next in Series")
+                    .font(.caption)
+                    .foregroundStyle(NimbusTheme.Colors.textSecondary)
+
+                HStack(spacing: 12) {
+                    if let mapping = nextBook.preferredMapping, let serverId = mapping.server?.id {
+                        CoverImageView(
+                            itemId: mapping.libraryItemId,
+                            serverService: serverService,
+                            serverId: serverId,
+                            width: 44
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(nextBook.title)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundStyle(NimbusTheme.Colors.textPrimary)
+                            .lineLimit(1)
+                        if let seq = nextBook.seriesSequence {
+                            Text("#\(seq)")
+                                .font(.caption)
+                                .foregroundStyle(NimbusTheme.Colors.textTertiary)
+                        }
+                    }
+
+                    Spacer()
+
+                    // Play next button would require navigation — for now just show info
+                }
+            }
+            .padding(12)
+            .background(NimbusTheme.Colors.surfaceOverlay)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private func findNextInSeries() -> CachedBook? {
+        guard let book = playerService.currentBook,
+              let seriesName = book.seriesName, !seriesName.isEmpty,
+              let currentSeq = book.seriesSequence,
+              let currentNum = Double(currentSeq) else { return nil }
+
+        return allBooks
+            .filter { $0.seriesName == seriesName && $0.id != book.id }
+            .compactMap { candidate -> (CachedBook, Double)? in
+                guard let seq = candidate.seriesSequence, let num = Double(seq) else { return nil }
+                guard num > currentNum else { return nil }
+                return (candidate, num)
+            }
+            .sorted { $0.1 < $1.1 }
+            .first?.0
     }
 
     // MARK: - Sleep Timer Countdown
