@@ -348,13 +348,15 @@ struct BookDetailView: View {
                     .foregroundStyle(NimbusTheme.Colors.textSecondary)
                     .lineLimit(descriptionExpanded ? nil : 4)
 
-                Button {
-                    withAnimation { descriptionExpanded.toggle() }
-                } label: {
-                    Text(descriptionExpanded ? "Show Less" : "Show More")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(NimbusTheme.Colors.accentPink)
+                if description.count > 200 {
+                    Button {
+                        withAnimation { descriptionExpanded.toggle() }
+                    } label: {
+                        Text(descriptionExpanded ? "Show Less" : "Show More")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(NimbusTheme.Colors.accentPink)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
