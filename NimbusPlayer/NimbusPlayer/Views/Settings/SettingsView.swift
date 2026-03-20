@@ -81,6 +81,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            .contentMargins(.bottom, 140)
             .scrollContentBackground(.hidden)
             .background(NimbusTheme.Colors.backgroundGrouped)
             .navigationTitle("Settings")
