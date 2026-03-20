@@ -507,10 +507,7 @@ struct BookDetailView: View {
             downloadService: downloadService,
             startTime: book.progress?.currentTime
         )
-        if hasUnreachableServers {
-            toastMessage = "Playing offline"
-            showToast = true
-        }
+        showNowPlaying = true
     }
 
     private func attemptPlayback(client: APIClient, mapping: ServerBookMapping, serverId: UUID) async {
@@ -535,6 +532,7 @@ struct BookDetailView: View {
                     startTime: book.progress?.currentTime
                 )
                 progressService.startTracking(playerService: playerService, modelContext: modelContext, completionThreshold: appState.completionThreshold)
+                showNowPlaying = true
 
                 if mapping.id != book.preferredMapping?.id {
                     toastMessage = "Playing from \(mapping.server?.displayName ?? "alternate server")"
