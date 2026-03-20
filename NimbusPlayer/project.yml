@@ -22,9 +22,11 @@ targets:
       - NimbusPlayer
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.nimbusplayer.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.nimbvs.player
         INFOPLIST_KEY_CFBundleDisplayName: "Nimbvs Player"
         INFOPLIST_KEY_UIRequiresFullScreen: "YES"
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
   NimbusPlayerTests:
     type: bundle.unit-test
     platform: iOS

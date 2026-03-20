@@ -1,21 +1,16 @@
 import SwiftUI
+import SwiftData
 
 // MARK: - ContinueListeningRow
 
 /// Displays a book in the "Continue Listening" horizontal scroll section.
-///
-/// Shows the cover image, title, a progress bar, and a percentage-complete label.
-/// Tapping navigates to the book's detail view.
 struct ContinueListeningRow: View {
-
-    // MARK: - Properties
 
     let book: CachedBook
     @Environment(ServerService.self) private var serverService
+    @Environment(\.modelContext) private var modelContext
 
     private let itemWidth: CGFloat = NimbusTheme.Dimensions.coverGridSize
-
-    // MARK: - Body
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -37,9 +32,14 @@ struct ContinueListeningRow: View {
             }
         }
         .frame(width: itemWidth)
+        .contextMenu {
+            Button {
+                markAsComplete()
+            } label: {
+                Label("Mark as Complete", systemImage: "checkmark.circle")
+            }
+        }
     }
-
-    // MARK: - Private
 
     @ViewBuilder
     private var coverImage: some View {
@@ -58,6 +58,15 @@ struct ContinueListeningRow: View {
                     Image(systemName: "book.closed.fill")
                         .foregroundStyle(NimbusTheme.Colors.textTertiary)
                 }
+        }
+    }
+
+    private func markAsComplete() {
+        if let progress = book.progress {
+            progress.isFinished = true
+            progress.needsSync = true
+            progress.lastUpdated = Date()
+            try? modelContext.save()
         }
     }
 }
