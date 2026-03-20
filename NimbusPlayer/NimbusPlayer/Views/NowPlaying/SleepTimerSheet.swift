@@ -6,107 +6,101 @@ struct SleepTimerSheet: View {
     @Environment(AudioPlayerService.self) private var playerService
     @State private var customMinutes: Double = 20
 
-    private let presets: [(label: String, minutes: Double)] = [
-        ("5 minutes", 5),
-        ("10 minutes", 10),
-        ("15 minutes", 15),
-        ("30 minutes", 30),
-        ("60 minutes", 60)
-    ]
+    private let presets: [Double] = [5, 10, 15, 30, 45, 60]
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
+            VStack(spacing: 16) {
+                // Active timer banner
                 if let remaining = playerService.sleepTimerRemaining {
                     activeTimerBanner(remaining: remaining)
-                        .padding(.bottom, NimbusTheme.Dimensions.paddingMedium)
                 }
 
-                List {
-                    Section {
-                        ForEach(presets, id: \.minutes) { preset in
-                            Button {
-                                playerService.setSleepTimer(minutes: preset.minutes)
-                                dismiss()
-                            } label: {
-                                HStack {
-                                    Image(systemName: "clock")
-                                        .foregroundStyle(NimbusTheme.Colors.textTertiary)
-                                        .frame(width: 24)
-                                    Text(preset.label)
-                                        .foregroundStyle(NimbusTheme.Colors.textPrimary)
-                                    Spacer()
-                                }
-                            }
-                            .listRowBackground(NimbusTheme.Colors.surfaceElevated)
-                        }
-
-                        // End of chapter
-                        Button {
-                            playerService.setSleepTimerEndOfChapter()
-                            dismiss()
-                        } label: {
-                            HStack {
-                                Image(systemName: "text.line.last.and.arrowtriangle.forward")
-                                    .foregroundStyle(NimbusTheme.Colors.textTertiary)
-                                    .frame(width: 24)
-                                Text("End of chapter")
-                                    .foregroundStyle(NimbusTheme.Colors.textPrimary)
-                                Spacer()
-                            }
-                        }
-                        .listRowBackground(NimbusTheme.Colors.surfaceElevated)
-                    }
-
-                    // Custom time
-                    Section("Custom") {
-                        HStack {
-                            Text("\(Int(customMinutes)) minutes")
-                                .foregroundStyle(NimbusTheme.Colors.textPrimary)
-                            Spacer()
-                        }
-                        .listRowBackground(NimbusTheme.Colors.surfaceElevated)
-
-                        Slider(value: $customMinutes, in: 1...120, step: 1)
-                            .tint(NimbusTheme.Colors.accentPink)
-                            .listRowBackground(NimbusTheme.Colors.surfaceElevated)
-
+                // Custom slider at top
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("\(Int(customMinutes)) min")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundStyle(NimbusTheme.Colors.accentPink)
+                            .monospacedDigit()
+                        Spacer()
                         Button {
                             playerService.setSleepTimer(minutes: customMinutes)
                             dismiss()
                         } label: {
-                            HStack {
-                                Spacer()
-                                Text("Set \(Int(customMinutes)) min timer")
-                                    .fontWeight(.semibold)
-                                    .foregroundStyle(NimbusTheme.Colors.accentPink)
-                                Spacer()
-                            }
+                            Text("Start")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 8)
+                                .background(NimbusTheme.Gradients.accent)
+                                .clipShape(Capsule())
                         }
-                        .listRowBackground(NimbusTheme.Colors.surfaceElevated)
                     }
 
-                    // Cancel button
-                    if playerService.sleepTimerRemaining != nil {
-                        Section {
-                            Button(role: .destructive) {
-                                playerService.cancelSleepTimer()
+                    Slider(value: $customMinutes, in: 1...120, step: 1)
+                        .tint(NimbusTheme.Colors.accentPink)
+                }
+                .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
+
+                // Quick presets as chips
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(presets, id: \.self) { minutes in
+                            Button {
+                                playerService.setSleepTimer(minutes: minutes)
                                 dismiss()
                             } label: {
-                                HStack {
-                                    Spacer()
-                                    Text("Cancel Timer")
-                                        .fontWeight(.semibold)
-                                    Spacer()
-                                }
+                                Text("\(Int(minutes))m")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(NimbusTheme.Colors.textPrimary)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 10)
+                                    .background(NimbusTheme.Colors.surfaceElevated)
+                                    .clipShape(Capsule())
                             }
-                            .listRowBackground(NimbusTheme.Colors.surfaceElevated)
+                        }
+
+                        Button {
+                            playerService.setSleepTimerEndOfChapter()
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "text.line.last.and.arrowtriangle.forward")
+                                    .font(.caption)
+                                Text("Chapter end")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundStyle(NimbusTheme.Colors.textPrimary)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(NimbusTheme.Colors.surfaceElevated)
+                            .clipShape(Capsule())
                         }
                     }
+                    .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
                 }
-                .listStyle(.insetGrouped)
-                .scrollContentBackground(.hidden)
+
+                // Cancel button
+                if playerService.sleepTimerRemaining != nil {
+                    Button(role: .destructive) {
+                        playerService.cancelSleepTimer()
+                        dismiss()
+                    } label: {
+                        Text("Cancel Timer")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                    }
+                    .padding(.top, 8)
+                }
+
+                Spacer()
             }
+            .padding(.top, NimbusTheme.Dimensions.paddingMedium)
             .background(NimbusTheme.Colors.backgroundDark)
             .navigationTitle("Sleep Timer")
             .navigationBarTitleDisplayMode(.inline)
@@ -136,14 +130,12 @@ struct SleepTimerSheet: View {
                     .foregroundStyle(NimbusTheme.Colors.textPrimary)
                     .monospacedDigit()
             }
-
             Spacer()
         }
         .padding(NimbusTheme.Dimensions.paddingMedium)
         .background(NimbusTheme.Colors.accentPink.opacity(0.15))
         .clipShape(RoundedRectangle(cornerRadius: NimbusTheme.Dimensions.smallCornerRadius))
         .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
-        .padding(.top, NimbusTheme.Dimensions.paddingMedium)
     }
 
     private func formatRemaining(_ seconds: TimeInterval) -> String {
