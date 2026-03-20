@@ -11,6 +11,7 @@ struct BookDetailView: View {
 
     let book: CachedBook
 
+    @Query private var allBooks: [CachedBook]
     @Environment(ServerService.self) private var serverService
     @Environment(AudioPlayerService.self) private var playerService
     @Environment(ProgressService.self) private var progressService
@@ -26,6 +27,8 @@ struct BookDetailView: View {
     @State private var showSyncPrompt = false
     @State private var pendingRemoteProgress: MediaProgressResponse?
     @State private var showNowPlaying = false
+    @State private var showSeriesDetail = false
+    @State private var selectedSeriesGroup: LibraryViewModel.BookGroup?
 
     // MARK: - Body
 
@@ -76,6 +79,11 @@ struct BookDetailView: View {
         }
         .fullScreenCover(isPresented: $showNowPlaying) {
             NowPlayingView()
+        }
+        .navigationDestination(isPresented: $showSeriesDetail) {
+            if let group = selectedSeriesGroup {
+                GroupDetailView(group: group)
+            }
         }
     }
 
@@ -129,7 +137,12 @@ struct BookDetailView: View {
             }
 
             if let seriesName = book.seriesName, !seriesName.isEmpty {
-                seriesBadge(name: seriesName, sequence: book.seriesSequence)
+                Button {
+                    selectedSeriesGroup = seriesGroup(for: seriesName)
+                    showSeriesDetail = true
+                } label: {
+                    seriesBadge(name: seriesName, sequence: book.seriesSequence)
+                }
             }
         }
     }
@@ -376,6 +389,18 @@ struct BookDetailView: View {
     }
 
     // MARK: - Download
+
+    private func seriesGroup(for seriesName: String) -> LibraryViewModel.BookGroup {
+        let seriesBooks = allBooks
+            .filter { $0.seriesName == seriesName }
+            .sorted { lhs, rhs in
+                let lSeq = Double(lhs.seriesSequence ?? "") ?? .greatestFiniteMagnitude
+                let rSeq = Double(rhs.seriesSequence ?? "") ?? .greatestFiniteMagnitude
+                if lSeq != rSeq { return lSeq < rSeq }
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
+        return LibraryViewModel.BookGroup(id: "series:\(seriesName)", name: seriesName, books: seriesBooks)
+    }
 
     private var hasUnreachableServers: Bool {
         book.serverMappings.allSatisfy { mapping in
