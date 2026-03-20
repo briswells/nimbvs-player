@@ -325,11 +325,11 @@ struct NowPlayingView: View {
                     .foregroundStyle(NimbusTheme.Colors.accentPink)
 
                 if remaining == -1 {
-                    Text("Sleep at end of chapter")
+                    Text("End of chapter")
                         .font(.caption)
                         .foregroundStyle(NimbusTheme.Colors.textSecondary)
                 } else {
-                    Text("Sleep in \(formatCountdown(remaining))")
+                    Text(formatCountdown(remaining))
                         .font(.caption)
                         .foregroundStyle(NimbusTheme.Colors.textSecondary)
                         .monospacedDigit()
@@ -337,26 +337,34 @@ struct NowPlayingView: View {
 
                 Spacer()
 
-                // Extend button
-                if playerService.lastSleepDuration > 0 {
-                    Button {
-                        playerService.setSleepTimer(minutes: playerService.lastSleepDuration)
-                    } label: {
-                        Text("+\(Int(playerService.lastSleepDuration))m")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(NimbusTheme.Colors.accentPink)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(NimbusTheme.Colors.accentPink.opacity(0.15))
-                            .clipShape(Capsule())
-                    }
-                }
+                extendButton(minutes: 5)
+                extendButton(minutes: 10)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(NimbusTheme.Colors.surfaceOverlay)
             .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func extendButton(minutes: Double) -> some View {
+        Button {
+            if let current = playerService.sleepTimerRemaining, current > 0 {
+                // Add time to existing timer
+                let newTotal = (current / 60) + minutes
+                playerService.setSleepTimer(minutes: newTotal)
+            } else {
+                playerService.setSleepTimer(minutes: minutes)
+            }
+        } label: {
+            Text("+\(Int(minutes))m")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(NimbusTheme.Colors.accentPink)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(NimbusTheme.Colors.accentPink.opacity(0.15))
+                .clipShape(Capsule())
         }
     }
 

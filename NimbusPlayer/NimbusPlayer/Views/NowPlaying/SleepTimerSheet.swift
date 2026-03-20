@@ -6,7 +6,7 @@ struct SleepTimerSheet: View {
     @Environment(AudioPlayerService.self) private var playerService
     @State private var customMinutes: Double = 20
 
-    private let presets: [Double] = [5, 10, 15, 30, 45, 60]
+    private let presets: [Double] = [15, 30, 45]
 
     var body: some View {
         NavigationStack {
