@@ -333,6 +333,8 @@ struct BookDetailView: View {
 
     // MARK: - Description Section
 
+    @State private var descriptionExpanded = false
+
     @ViewBuilder
     private var descriptionSection: some View {
         if let description = book.bookDescription, !description.isEmpty {
@@ -344,7 +346,16 @@ struct BookDetailView: View {
                 Text(description)
                     .font(.subheadline)
                     .foregroundStyle(NimbusTheme.Colors.textSecondary)
-                    .lineLimit(4)
+                    .lineLimit(descriptionExpanded ? nil : 4)
+
+                Button {
+                    withAnimation { descriptionExpanded.toggle() }
+                } label: {
+                    Text(descriptionExpanded ? "Show Less" : "Show More")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(NimbusTheme.Colors.accentPink)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
