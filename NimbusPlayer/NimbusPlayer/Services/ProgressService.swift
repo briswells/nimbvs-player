@@ -70,14 +70,12 @@ final class ProgressService {
     func saveLocalProgress(playerService: AudioPlayerService, modelContext: ModelContext) {
         guard let book = playerService.currentBook else { return }
         guard playerService.duration > 0 else { return }
-        guard playerService.isPlaying else { return }
-
         let currentTime = playerService.currentTime
         let duration = playerService.duration
 
         if let progress = book.progress {
-            // Only save if position changed by at least 1 second (avoids unnecessary SwiftData mutations)
-            guard abs(progress.currentTime - currentTime) >= 1.0 else { return }
+            // Only save if position changed by at least 1 second
+            guard abs(progress.currentTime - currentTime) >= 1.0 || playerService.didFinishBook else { return }
             progress.update(currentTime: currentTime, duration: duration, completionThreshold: completionThreshold)
             progress.playbackSpeed = playerService.playbackSpeed
             progress.activeSessionId = playerService.sessionId

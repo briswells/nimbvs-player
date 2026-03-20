@@ -463,7 +463,8 @@ final class AudioPlayerService {
         if nextIndex < tracks.count {
             loadTrack(at: nextIndex, seekTo: 0, serverId: serverId, serverService: serverService)
         } else {
-            // Book finished
+            // Book finished — set time to full duration so threshold triggers
+            currentTime = duration
             pause()
             didFinishBook = true
         }

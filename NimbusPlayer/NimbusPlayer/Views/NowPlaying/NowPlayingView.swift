@@ -29,7 +29,6 @@ struct NowPlayingView: View {
     @Environment(AudioPlayerService.self) private var playerService
     @Environment(ServerService.self) private var serverService
     @Environment(\.modelContext) private var modelContext
-    @Query private var allBooks: [CachedBook]
 
     @State private var viewModel = NowPlayingViewModel()
     @State private var showBookmarks = false
@@ -72,7 +71,6 @@ struct NowPlayingView: View {
                         scrubber
                         transportControls
                         sleepTimerCountdown
-                        nextInSeriesBanner
                         bottomActions
                     }
                     .padding(.horizontal, NimbusTheme.Dimensions.paddingLarge)
@@ -356,64 +354,6 @@ struct NowPlayingView: View {
 
     // MARK: - Next In Series
 
-    @ViewBuilder
-    private var nextInSeriesBanner: some View {
-        if playerService.didFinishBook, let nextBook = findNextInSeries() {
-            VStack(spacing: 8) {
-                Text("Up Next in Series")
-                    .font(.caption)
-                    .foregroundStyle(NimbusTheme.Colors.textSecondary)
-
-                HStack(spacing: 12) {
-                    if let mapping = nextBook.preferredMapping, let serverId = mapping.server?.id {
-                        CoverImageView(
-                            itemId: mapping.libraryItemId,
-                            serverService: serverService,
-                            serverId: serverId,
-                            width: 44
-                        )
-                    }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(nextBook.title)
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundStyle(NimbusTheme.Colors.textPrimary)
-                            .lineLimit(1)
-                        if let seq = nextBook.seriesSequence {
-                            Text("#\(seq)")
-                                .font(.caption)
-                                .foregroundStyle(NimbusTheme.Colors.textTertiary)
-                        }
-                    }
-
-                    Spacer()
-
-                    // Play next button would require navigation — for now just show info
-                }
-            }
-            .padding(12)
-            .background(NimbusTheme.Colors.surfaceOverlay)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-        }
-    }
-
-    private func findNextInSeries() -> CachedBook? {
-        guard let book = playerService.currentBook,
-              let seriesName = book.seriesName, !seriesName.isEmpty,
-              let currentSeq = book.seriesSequence,
-              let currentNum = Double(currentSeq) else { return nil }
-
-        return allBooks
-            .filter { $0.seriesName == seriesName && $0.id != book.id }
-            .compactMap { candidate -> (CachedBook, Double)? in
-                guard let seq = candidate.seriesSequence, let num = Double(seq) else { return nil }
-                guard num > currentNum else { return nil }
-                return (candidate, num)
-            }
-            .sorted { $0.1 < $1.1 }
-            .first?.0
-    }
 
     // MARK: - Sleep Timer Countdown
 

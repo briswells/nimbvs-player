@@ -190,6 +190,43 @@ final class LibraryViewModel {
         return Double(seq) ?? Double.greatestFiniteMagnitude
     }
 
+    // MARK: - Next in Series
+
+    /// For each finished book that's in a series, find the next unstarted/unfinished book by sequence.
+    func nextInSeriesBooks(_ books: [CachedBook]) -> [CachedBook] {
+        var results: [CachedBook] = []
+        var seen = Set<UUID>()
+
+        let finishedBooks = books.filter { $0.progress?.isFinished == true }
+
+        for finished in finishedBooks {
+            guard let seriesName = finished.seriesName, !seriesName.isEmpty,
+                  let currentSeq = finished.seriesSequence,
+                  let currentNum = Double(currentSeq) else { continue }
+
+            // Find the next book in the series by sequence number
+            let next = books
+                .filter { candidate in
+                    candidate.seriesName == seriesName
+                    && candidate.id != finished.id
+                    && candidate.progress?.isFinished != true
+                }
+                .compactMap { candidate -> (CachedBook, Double)? in
+                    guard let seq = candidate.seriesSequence, let num = Double(seq) else { return nil }
+                    guard num > currentNum else { return nil }
+                    return (candidate, num)
+                }
+                .sorted { $0.1 < $1.1 }
+                .first?.0
+
+            if let next, seen.insert(next.id).inserted {
+                results.append(next)
+            }
+        }
+
+        return results
+    }
+
     // MARK: - Continue Listening
 
     func continueListeningBooks(_ books: [CachedBook]) -> [CachedBook] {
