@@ -25,6 +25,9 @@ final class ListeningProgress {
     var lastUpdated: Date
     var needsSync: Bool
 
+    /// The server's last update timestamp (from any device). Used for cross-device Continue Listening ordering.
+    var serverLastUpdate: Date?
+
     /// The active Audiobookshelf playback session ID, if any.
     var activeSessionId: String?
 

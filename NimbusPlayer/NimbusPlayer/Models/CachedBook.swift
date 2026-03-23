@@ -23,6 +23,7 @@ final class CachedBook {
     var coverPath: String?
     var seriesName: String?
     var seriesSequence: String?
+    var seriesId: String?
     var genres: [String] = []
     var lastUpdated: Date
 

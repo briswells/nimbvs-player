@@ -68,5 +68,14 @@ struct MainTabView: View {
         .fullScreenCover(isPresented: $showNowPlaying) {
             NowPlayingView()
         }
+        .onChange(of: playerService.didFinishBook) { _, finished in
+            guard finished else { return }
+            // Dismiss now playing, then clear the player after progress has been saved
+            showNowPlaying = false
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                playerService.stop()
+            }
+        }
     }
 }
