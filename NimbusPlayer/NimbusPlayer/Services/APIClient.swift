@@ -338,6 +338,25 @@ final class APIClient {
         _ = try await request(UserResponse.self, method: "GET", path: "/api/me/series/\(seriesId)/readd-to-continue-listening")
     }
 
+    // MARK: - Bookmarks
+
+    /// Creates a bookmark on the server for a library item.
+    func createBookmark(libraryItemId: String, time: Double, title: String) async throws -> ServerBookmark {
+        struct Body: Codable { let time: Double; let title: String }
+        return try await request(ServerBookmark.self, method: "POST", path: "/api/me/item/\(libraryItemId)/bookmark", body: Body(time: time, title: title))
+    }
+
+    /// Updates an existing bookmark's title on the server.
+    func updateBookmark(libraryItemId: String, time: Double, title: String) async throws -> ServerBookmark {
+        struct Body: Codable { let time: Double; let title: String }
+        return try await request(ServerBookmark.self, method: "PATCH", path: "/api/me/item/\(libraryItemId)/bookmark", body: Body(time: time, title: title))
+    }
+
+    /// Deletes a bookmark on the server (identified by libraryItemId + time).
+    func deleteBookmark(libraryItemId: String, time: Double) async throws {
+        try await requestVoid(method: "DELETE", path: "/api/me/item/\(libraryItemId)/bookmark/\(time)")
+    }
+
     /// Fetches basic series info (name) by ID.
     func getSeriesName(seriesId: String) async throws -> String {
         let data: SeriesBasicResponse = try await request(SeriesBasicResponse.self, method: "GET", path: "/api/series/\(seriesId)")

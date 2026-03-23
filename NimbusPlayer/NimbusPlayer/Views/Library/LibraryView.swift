@@ -11,6 +11,7 @@ struct LibraryView: View {
     @Environment(ProgressService.self) private var progressService
     @Environment(NetworkMonitor.self) private var networkMonitor
     @Environment(DownloadService.self) private var downloadService
+    @Environment(SyncQueueService.self) private var syncQueueService
     @Environment(\.modelContext) private var modelContext
 
     @Query private var books: [CachedBook]
@@ -417,10 +418,12 @@ struct LibraryView: View {
 
     private var hasUnreachableServers: Bool {
         guard !servers.isEmpty else { return false }
-        let result = servers.allSatisfy { server in
-            serverService.serverStatuses[server.id] != .connected
+        // Only show offline banner when ALL servers have been checked and none are connected.
+        // Treat .unknown (not yet validated) as potentially connected to avoid a flash on startup.
+        return servers.allSatisfy { server in
+            let status = serverService.serverStatuses[server.id] ?? .unknown
+            return status == .unreachable || status == .authExpired
         }
-        return result
     }
 
     private var offlineBanner: some View {
@@ -472,6 +475,51 @@ struct LibraryView: View {
             serverService: serverService,
             modelContext: modelContext
         )
+
+        // Sync bookmarks from server
+        await syncBookmarks()
+
+        // Flush any queued actions (bookmarks, series hide, etc.)
+        await syncQueueService.flushQueue(modelContext: modelContext, serverService: serverService)
+    }
+
+    private func syncBookmarks() async {
+        // Build lookup: libraryItemId → CachedBook
+        let allBooks: [CachedBook]
+        do {
+            allBooks = try modelContext.fetch(FetchDescriptor<CachedBook>())
+        } catch { return }
+
+        var itemIdToBook: [String: CachedBook] = [:]
+        for book in allBooks {
+            for mapping in book.serverMappings {
+                itemIdToBook[mapping.libraryItemId] = book
+            }
+        }
+
+        for server in servers where server.isActive {
+            guard let client = serverService.client(for: server.id) else { continue }
+            guard let user = try? await client.getMe(),
+                  let remoteBookmarks = user.bookmarks else { continue }
+
+            for remote in remoteBookmarks {
+                guard let book = itemIdToBook[remote.libraryItemId] else { continue }
+
+                // Check if we already have a bookmark at this time (within 1s tolerance)
+                let alreadyExists = book.bookmarks.contains { abs($0.timestamp - remote.time) < 1.0 }
+                if !alreadyExists {
+                    let bookmark = Bookmark(
+                        book: book,
+                        timestamp: remote.time,
+                        note: remote.title
+                    )
+                    bookmark.dateCreated = Date(timeIntervalSince1970: remote.createdAt / 1000)
+                    modelContext.insert(bookmark)
+                }
+            }
+        }
+
+        try? modelContext.save()
     }
 
     private func syncHiddenSeries() async {
@@ -518,18 +566,21 @@ struct LibraryView: View {
             }
         }
 
-        // Sync to server if we have the series ID
         if let seriesId = book.seriesId {
             appState.hideSeriesId(seriesId)
-            Task {
-                for mapping in book.serverMappings {
-                    guard let server = mapping.server,
-                          let client = serverService.client(for: server.id) else { continue }
-                    try? await client.hideSeriesFromContinueListening(seriesId: seriesId)
-                }
+            // Queue sync for each server that has this book
+            for mapping in book.serverMappings {
+                guard let server = mapping.server else { continue }
+                syncQueueService.enqueue(
+                    action: .seriesHide,
+                    payload: SeriesHidePayload(seriesId: seriesId),
+                    serverId: server.id,
+                    modelContext: modelContext,
+                    serverService: serverService
+                )
             }
         } else {
-            // No seriesId locally — fetch item details to get it, then sync
+            // No seriesId locally — fetch item details to get it, then queue
             Task {
                 guard let mapping = book.preferredMapping,
                       let server = mapping.server,
@@ -537,7 +588,13 @@ struct LibraryView: View {
                 guard let details = try? await client.getItemDetails(itemId: mapping.libraryItemId),
                       let seriesId = details.seriesId else { return }
                 appState.hideSeriesId(seriesId)
-                try? await client.hideSeriesFromContinueListening(seriesId: seriesId)
+                syncQueueService.enqueue(
+                    action: .seriesHide,
+                    payload: SeriesHidePayload(seriesId: seriesId),
+                    serverId: server.id,
+                    modelContext: modelContext,
+                    serverService: serverService
+                )
             }
         }
     }
@@ -550,6 +607,21 @@ struct LibraryView: View {
             progress.lastUpdated = Date()
             try? modelContext.save()
         }
+
+        // Queue the isFinished sync to server
+        guard let mapping = book.preferredMapping, let server = mapping.server else { return }
+        syncQueueService.enqueue(
+            action: .markComplete,
+            payload: MarkCompletePayload(
+                libraryItemId: mapping.libraryItemId,
+                progress: progress.progress,
+                currentTime: progress.currentTime,
+                duration: progress.totalDuration
+            ),
+            serverId: server.id,
+            modelContext: modelContext,
+            serverService: serverService
+        )
     }
 
     private func resetBookProgress(_ book: CachedBook) {

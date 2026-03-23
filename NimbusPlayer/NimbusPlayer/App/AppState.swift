@@ -66,6 +66,7 @@ final class AppState {
         static let downloadOverCellular = "downloadOverCellular"
         static let autoRemoveFinishedDownloads = "autoRemoveFinishedDownloads"
         static let appearanceMode = "appearanceMode"
+        static let autoSyncProgress = "autoSyncProgress"
         static let completionThreshold = "completionThreshold"
         static let completionThresholdMode = "completionThresholdMode"
         static let dismissedNextInSeries = "dismissedNextInSeries"
@@ -99,6 +100,11 @@ final class AppState {
 
     var autoRemoveFinishedDownloads: Bool {
         didSet { defaults.set(autoRemoveFinishedDownloads, forKey: Keys.autoRemoveFinishedDownloads) }
+    }
+
+    /// When enabled, automatically applies the most recent server progress without prompting.
+    var autoSyncProgress: Bool {
+        didSet { defaults.set(autoSyncProgress, forKey: Keys.autoSyncProgress) }
     }
 
     var appearanceMode: AppearanceMode {
@@ -164,6 +170,7 @@ final class AppState {
 
         self.downloadOverCellular = defaults.bool(forKey: Keys.downloadOverCellular)
         self.autoRemoveFinishedDownloads = defaults.bool(forKey: Keys.autoRemoveFinishedDownloads)
+        self.autoSyncProgress = defaults.bool(forKey: Keys.autoSyncProgress)
 
         let modeString = defaults.string(forKey: Keys.appearanceMode) ?? AppearanceMode.system.rawValue
         self.appearanceMode = AppearanceMode(rawValue: modeString) ?? .system

@@ -52,7 +52,10 @@ final class ServerService {
                 if let token = try keychain.getToken(for: server.id) {
                     let client = APIClient(baseURL: baseURL, token: token)
                     clients[server.id] = client
-                    serverStatuses[server.id] = .unknown
+                    // Only set .unknown if not already validated — avoid resetting .connected
+                    if serverStatuses[server.id] == nil {
+                        serverStatuses[server.id] = .unknown
+                    }
                 } else {
                     serverStatuses[server.id] = .authExpired
                 }
