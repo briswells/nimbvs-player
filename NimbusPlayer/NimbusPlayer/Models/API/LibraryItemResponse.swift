@@ -19,6 +19,7 @@ struct LibraryItemResponse: Codable {
     let libraryId: String
     let mediaType: String
     let media: MediaResponse
+    let relPath: String?
 
     // MARK: - Convenience Properties
 
@@ -47,6 +48,11 @@ struct LibraryItemResponse: Codable {
         media.metadata.isbn
     }
 
+    /// Server series ID from the structured series array.
+    var seriesId: String? {
+        media.metadata.series?.first?.id
+    }
+
     /// Series name — from structured series array, or parsed from the pre-computed seriesName string.
     var seriesName: String? {
         if let name = media.metadata.series?.first?.name, !name.isEmpty {
@@ -58,17 +64,28 @@ struct LibraryItemResponse: Codable {
         return parts.first.map { String($0).trimmingCharacters(in: .whitespaces) }
     }
 
-    /// Series sequence — from structured series array, or parsed from the pre-computed seriesName string.
+    /// Series sequence — from structured series array, parsed from seriesName, or extracted from the file path.
     var seriesSequence: String? {
         if let seq = media.metadata.series?.first?.sequence, !seq.isEmpty {
             return seq
         }
-        // Fall back to parsing "The Expanse #3" → "3"
-        guard let raw = media.metadata.seriesName, !raw.isEmpty else { return nil }
-        let parts = raw.split(separator: "#", maxSplits: 1)
-        guard parts.count > 1 else { return nil }
-        let seq = String(parts[1]).trimmingCharacters(in: .whitespaces)
-        return seq.isEmpty ? nil : seq
+        // Try parsing "The Expanse #3" → "3"
+        if let raw = media.metadata.seriesName, !raw.isEmpty {
+            let parts = raw.split(separator: "#", maxSplits: 1)
+            if parts.count > 1 {
+                let seq = String(parts[1]).trimmingCharacters(in: .whitespaces)
+                if !seq.isEmpty { return seq }
+            }
+        }
+        // Fall back to extracting from the path, e.g. "Author-Series-#2-Title" → "2"
+        if let path = relPath {
+            let components = path.split(separator: "/").last.map(String.init) ?? path
+            if let range = components.range(of: #"#(\d+)"#, options: .regularExpression) {
+                let match = components[range]
+                return String(match.dropFirst()) // drop the "#"
+            }
+        }
+        return nil
     }
 
     /// Total duration of all audio files in seconds.

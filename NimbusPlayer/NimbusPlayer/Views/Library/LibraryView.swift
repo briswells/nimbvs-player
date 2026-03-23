@@ -41,8 +41,10 @@ struct LibraryView: View {
                                     offlineBanner
                                 }
                                 if viewModel.groupMode == .allBooks {
-                                    continueListeningSection
-                                    nextInSeriesSection
+                                    let inProgress = viewModel.continueListeningBooks(visibleBooks)
+                                    let inProgressIds = Set(inProgress.map(\.id))
+                                    continueListeningSection(books: inProgress)
+                                    nextInSeriesSection(excludeBookIds: inProgressIds)
                                 }
                                 libraryContent
                             }
@@ -186,8 +188,7 @@ struct LibraryView: View {
     // MARK: - Continue Listening
 
     @ViewBuilder
-    private var continueListeningSection: some View {
-        let inProgressBooks = viewModel.continueListeningBooks(visibleBooks)
+    private func continueListeningSection(books inProgressBooks: [CachedBook]) -> some View {
         if !inProgressBooks.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 sectionHeader("Continue Listening")
@@ -200,6 +201,18 @@ struct LibraryView: View {
                                 ContinueListeningRow(book: book)
                             }
                             .buttonStyle(.plain)
+                            .contextMenu {
+                                Button {
+                                    markBookAsComplete(book)
+                                } label: {
+                                    Label("Mark as Complete", systemImage: "checkmark.circle")
+                                }
+                                Button(role: .destructive) {
+                                    resetBookProgress(book)
+                                } label: {
+                                    Label("Clear Progress", systemImage: "arrow.counterclockwise")
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
@@ -211,8 +224,8 @@ struct LibraryView: View {
     // MARK: - Next in Series
 
     @ViewBuilder
-    private var nextInSeriesSection: some View {
-        let nextBooks = viewModel.nextInSeriesBooks(visibleBooks)
+    private func nextInSeriesSection(excludeBookIds: Set<UUID>) -> some View {
+        let nextBooks = viewModel.nextInSeriesBooks(visibleBooks, hiddenSeriesIds: appState.hiddenSeriesIds, hiddenSeriesNames: appState.hiddenSeriesNames, excludeBookIds: excludeBookIds)
         if !nextBooks.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 sectionHeader("Next in Series")
@@ -225,6 +238,13 @@ struct LibraryView: View {
                                 ContinueListeningRow(book: book)
                             }
                             .buttonStyle(.plain)
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    dismissSeriesFromContinueListening(book: book)
+                                } label: {
+                                    Label("Remove Series from Continue Listening", systemImage: "xmark.circle")
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
@@ -432,6 +452,9 @@ struct LibraryView: View {
         serverService.loadClients(servers: servers)
         await serverService.validateConnections(servers: servers)
 
+        // Pull hidden series list FIRST so the view filters correctly as books load
+        await syncHiddenSeries()
+
         await viewModel.refresh(
             servers: servers,
             serverService: { server in
@@ -439,11 +462,111 @@ struct LibraryView: View {
             },
             modelContext: modelContext
         )
+        // Set the threshold settings before syncing so pulled progress respects them
+        progressService.completionThreshold = appState.completionThreshold
+        progressService.completionThresholdMode = appState.completionThresholdMode
+        progressService.completionThresholdSeconds = appState.completionThresholdSeconds
         // Sync all progress from servers so "Continue Listening" populates immediately
         await progressService.syncAllProgress(
             servers: servers,
             serverService: serverService,
             modelContext: modelContext
         )
+    }
+
+    private func syncHiddenSeries() async {
+        var allHiddenIds = Set<String>()
+        var anyClient: APIClient?
+
+        for server in servers where server.isActive {
+            guard let client = serverService.client(for: server.id) else { continue }
+            anyClient = client
+            guard let user = try? await client.getMe() else { continue }
+            if let hidden = user.seriesHideFromContinueListening {
+                allHiddenIds.formUnion(hidden)
+            }
+        }
+
+        // Resolve all hidden series IDs to names.
+        // Always resolve all IDs — the name set may be stale or empty from a prior install.
+        if let client = anyClient {
+            for seriesId in allHiddenIds {
+                if let name = try? await client.getSeriesName(seriesId: seriesId) {
+                    appState.hiddenSeriesNames.insert(name)
+                }
+            }
+        }
+
+        // Remove names for series that were un-hidden on the server
+        let removedIds = appState.hiddenSeriesIds.subtracting(allHiddenIds)
+        if !removedIds.isEmpty, let client = anyClient {
+            for seriesId in removedIds {
+                if let name = try? await client.getSeriesName(seriesId: seriesId) {
+                    appState.hiddenSeriesNames.remove(name)
+                }
+            }
+        }
+
+        appState.hiddenSeriesIds = allHiddenIds
+    }
+
+    private func dismissSeriesFromContinueListening(book: CachedBook) {
+        // Hide locally by name immediately (works even without seriesId)
+        if let name = book.seriesName {
+            withAnimation {
+                appState.hiddenSeriesNames.insert(name)
+            }
+        }
+
+        // Sync to server if we have the series ID
+        if let seriesId = book.seriesId {
+            appState.hideSeriesId(seriesId)
+            Task {
+                for mapping in book.serverMappings {
+                    guard let server = mapping.server,
+                          let client = serverService.client(for: server.id) else { continue }
+                    try? await client.hideSeriesFromContinueListening(seriesId: seriesId)
+                }
+            }
+        } else {
+            // No seriesId locally — fetch item details to get it, then sync
+            Task {
+                guard let mapping = book.preferredMapping,
+                      let server = mapping.server,
+                      let client = serverService.client(for: server.id) else { return }
+                guard let details = try? await client.getItemDetails(itemId: mapping.libraryItemId),
+                      let seriesId = details.seriesId else { return }
+                appState.hideSeriesId(seriesId)
+                try? await client.hideSeriesFromContinueListening(seriesId: seriesId)
+            }
+        }
+    }
+
+    private func markBookAsComplete(_ book: CachedBook) {
+        guard let progress = book.progress else { return }
+        withAnimation {
+            progress.isFinished = true
+            progress.needsSync = true
+            progress.lastUpdated = Date()
+            try? modelContext.save()
+        }
+    }
+
+    private func resetBookProgress(_ book: CachedBook) {
+        guard let progress = book.progress else { return }
+        withAnimation {
+            progress.currentTime = 0
+            progress.progress = 0
+            progress.isFinished = false
+            progress.lastUpdated = Date()
+            progress.needsSync = true
+            try? modelContext.save()
+        }
+        Task {
+            await progressService.flushPendingSyncs(
+                modelContext: modelContext,
+                serverService: serverService
+            )
+        }
     }
 }

@@ -544,7 +544,7 @@ struct BookDetailView: View {
                     serverService: serverService,
                     startTime: book.progress?.currentTime
                 )
-                progressService.startTracking(playerService: playerService, modelContext: modelContext, completionThreshold: appState.completionThreshold)
+                progressService.startTracking(playerService: playerService, modelContext: modelContext, appState: appState)
                 showNowPlaying = true
 
                 if mapping.id != book.preferredMapping?.id {

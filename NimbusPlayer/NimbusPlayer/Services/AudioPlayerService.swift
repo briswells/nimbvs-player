@@ -453,7 +453,9 @@ final class AudioPlayerService {
         if nextIndex < localFileURLs.count {
             loadLocalTrack(at: nextIndex, seekTo: 0)
         } else {
+            currentTime = duration
             pause()
+            didFinishBook = true
         }
     }
 

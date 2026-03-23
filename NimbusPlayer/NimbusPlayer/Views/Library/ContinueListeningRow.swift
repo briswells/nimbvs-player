@@ -8,7 +8,6 @@ struct ContinueListeningRow: View {
 
     let book: CachedBook
     @Environment(ServerService.self) private var serverService
-    @Environment(\.modelContext) private var modelContext
 
     private let itemWidth: CGFloat = NimbusTheme.Dimensions.coverGridSize
 
@@ -32,13 +31,6 @@ struct ContinueListeningRow: View {
             }
         }
         .frame(width: itemWidth)
-        .contextMenu {
-            Button {
-                markAsComplete()
-            } label: {
-                Label("Mark as Complete", systemImage: "checkmark.circle")
-            }
-        }
     }
 
     @ViewBuilder
@@ -61,12 +53,4 @@ struct ContinueListeningRow: View {
         }
     }
 
-    private func markAsComplete() {
-        if let progress = book.progress {
-            progress.isFinished = true
-            progress.needsSync = true
-            progress.lastUpdated = Date()
-            try? modelContext.save()
-        }
-    }
 }

@@ -29,11 +29,13 @@ enum APIError: Error, LocalizedError {
 // MARK: - ProgressUpdateRequest
 
 /// Request body sent to update media progress for a library item.
+/// `isFinished` is optional — when nil it is omitted from the JSON so the server's
+/// existing value is preserved. This prevents accidentally un-finishing a book.
 struct ProgressUpdateRequest: Codable {
     let progress: Double
     let currentTime: Double
     let duration: Double
-    let isFinished: Bool
+    let isFinished: Bool?
 }
 
 // MARK: - APIClient
@@ -324,6 +326,22 @@ final class APIClient {
     /// Fetches the current user's profile including all media progress.
     func getMe() async throws -> UserResponse {
         try await request(UserResponse.self, method: "GET", path: "/api/me")
+    }
+
+    /// Hides a series from "Continue Listening" / "Next in Series" on the server.
+    func hideSeriesFromContinueListening(seriesId: String) async throws {
+        _ = try await request(UserResponse.self, method: "GET", path: "/api/me/series/\(seriesId)/remove-from-continue-listening")
+    }
+
+    /// Un-hides a series, restoring it to "Continue Listening" / "Next in Series" on the server.
+    func unhideSeriesFromContinueListening(seriesId: String) async throws {
+        _ = try await request(UserResponse.self, method: "GET", path: "/api/me/series/\(seriesId)/readd-to-continue-listening")
+    }
+
+    /// Fetches basic series info (name) by ID.
+    func getSeriesName(seriesId: String) async throws -> String {
+        let data: SeriesBasicResponse = try await request(SeriesBasicResponse.self, method: "GET", path: "/api/series/\(seriesId)")
+        return data.name
     }
 
     /// Fetches listening statistics.

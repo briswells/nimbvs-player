@@ -16,6 +16,7 @@ struct UserResponse: Codable {
     let type: String
     let token: String
     let mediaProgress: [MediaProgressResponse]?
+    let seriesHideFromContinueListening: [String]?
 }
 
 // MARK: - MediaProgressResponse
@@ -32,6 +33,14 @@ struct MediaProgressResponse: Codable {
     let lastUpdate: TimeInterval
     let startedAt: TimeInterval?
     let finishedAt: TimeInterval?
+}
+
+// MARK: - SeriesBasicResponse
+
+/// Minimal response from the series detail endpoint.
+struct SeriesBasicResponse: Codable {
+    let id: String
+    let name: String
 }
 
 // MARK: - AuthorizeResponse

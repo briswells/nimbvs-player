@@ -16,7 +16,9 @@ final class ProgressService {
     private var syncTimer: Timer?
     private var localSaveTimer: Timer?
     private let keychain = KeychainService()
-    private var completionThreshold: Double = 1.0
+    var completionThreshold: Double = 1.0
+    var completionThresholdMode: CompletionThresholdMode = .percentage
+    var completionThresholdSeconds: Int = 300
 
     // MARK: - Tracking Lifecycle
 
@@ -29,8 +31,10 @@ final class ProgressService {
     /// - Parameters:
     ///   - playerService: The audio player whose position is tracked.
     ///   - modelContext: The SwiftData context used for local persistence.
-    func startTracking(playerService: AudioPlayerService, modelContext: ModelContext, completionThreshold: Double = 1.0) {
-        self.completionThreshold = completionThreshold
+    func startTracking(playerService: AudioPlayerService, modelContext: ModelContext, appState: AppState) {
+        self.completionThreshold = appState.completionThreshold
+        self.completionThresholdMode = appState.completionThresholdMode
+        self.completionThresholdSeconds = appState.completionThresholdSeconds
         stopTracking()
 
         localSaveTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
@@ -76,7 +80,7 @@ final class ProgressService {
         if let progress = book.progress {
             // Only save if position changed by at least 1 second
             guard abs(progress.currentTime - currentTime) >= 1.0 || playerService.didFinishBook else { return }
-            progress.update(currentTime: currentTime, duration: duration, completionThreshold: completionThreshold)
+            progress.update(currentTime: currentTime, duration: duration, completionThreshold: effectiveThreshold(forDuration: duration))
             progress.playbackSpeed = playerService.playbackSpeed
             progress.activeSessionId = playerService.sessionId
             progress.activeSessionServerId = playerService.sessionServerId
@@ -129,6 +133,21 @@ final class ProgressService {
 
         do {
             try await client.syncSession(sessionId: sessionId, body: syncRequest)
+
+            // If the book is finished, also update progress via the dedicated endpoint
+            // so the server records the isFinished flag (SessionSyncRequest doesn't carry it).
+            if let freshProgress = book.progress, freshProgress.isFinished {
+                if let mapping = book.preferredMapping {
+                    let update = ProgressUpdateRequest(
+                        progress: freshProgress.progress,
+                        currentTime: currentTime,
+                        duration: duration,
+                        isFinished: true
+                    )
+                    try? await client.updateProgress(libraryItemId: mapping.libraryItemId, progress: update)
+                }
+            }
+
             // Re-fetch progress after await — the reference may be stale
             if let freshProgress = book.progress {
                 freshProgress.needsSync = false
@@ -167,6 +186,18 @@ final class ProgressService {
         do {
             try await client.syncSession(sessionId: sessionId, body: syncRequest)
             try await client.closeSession(sessionId: sessionId)
+
+            // Send isFinished to the server via the progress endpoint
+            if progress.isFinished, let mapping = book.preferredMapping {
+                let update = ProgressUpdateRequest(
+                    progress: progress.progress,
+                    currentTime: playerService.currentTime,
+                    duration: playerService.duration,
+                    isFinished: true
+                )
+                try? await client.updateProgress(libraryItemId: mapping.libraryItemId, progress: update)
+            }
+
             progress.activeSessionId = nil
             progress.activeSessionServerId = nil
             progress.needsSync = false
@@ -226,9 +257,15 @@ final class ProgressService {
             return
         }
 
+        let effectivePct = effectiveThreshold(forDuration: remote.duration)
+        let isFinished = remote.isFinished || (remote.duration > 0 && (remote.currentTime / remote.duration) >= effectivePct)
+
+        let serverDate = Date(timeIntervalSince1970: remote.lastUpdate / 1000)
+
         if let progress = book.progress {
-            progress.update(currentTime: remote.currentTime, duration: remote.duration)
-            progress.isFinished = remote.isFinished
+            progress.update(currentTime: remote.currentTime, duration: remote.duration, completionThreshold: effectivePct)
+            progress.isFinished = isFinished
+            progress.serverLastUpdate = serverDate
             progress.needsSync = false
         } else {
             let progress = ListeningProgress(
@@ -236,7 +273,8 @@ final class ProgressService {
                 currentTime: remote.currentTime,
                 totalDuration: remote.duration
             )
-            progress.isFinished = remote.isFinished
+            progress.isFinished = isFinished
+            progress.serverLastUpdate = serverDate
             progress.needsSync = false
             modelContext.insert(progress)
             book.progress = progress
@@ -285,6 +323,11 @@ final class ProgressService {
                 let localUpdate = book.progress?.lastUpdated ?? .distantPast
                 let remoteDate = Date(timeIntervalSince1970: remote.lastUpdate / 1000)
 
+                // Always update the server timestamp for Continue Listening ordering
+                if let progress = book.progress {
+                    progress.serverLastUpdate = remoteDate
+                }
+
                 if localTime == 0 && remote.currentTime > 0 {
                     applyRemoteProgress(remote, to: book, modelContext: modelContext)
                 } else if remoteDate > localUpdate && abs(remote.currentTime - localTime) > 30 {
@@ -324,14 +367,22 @@ final class ProgressService {
     }
 
     /// Applies a remote progress response to the local book.
+    /// Uses the local completion threshold to determine `isFinished` — if the server
+    /// says finished OR the local threshold is met, the book is marked finished.
     func applyRemoteProgress(
         _ remote: MediaProgressResponse,
         to book: CachedBook,
         modelContext: ModelContext
     ) {
+        let effectivePct = effectiveThreshold(forDuration: remote.duration)
+        let isFinished = remote.isFinished || (remote.duration > 0 && (remote.currentTime / remote.duration) >= effectivePct)
+
+        let serverDate = Date(timeIntervalSince1970: remote.lastUpdate / 1000)
+
         if let progress = book.progress {
-            progress.update(currentTime: remote.currentTime, duration: remote.duration)
-            progress.isFinished = remote.isFinished
+            progress.update(currentTime: remote.currentTime, duration: remote.duration, completionThreshold: effectivePct)
+            progress.isFinished = isFinished
+            progress.serverLastUpdate = serverDate
             progress.needsSync = false
         } else {
             let progress = ListeningProgress(
@@ -339,7 +390,8 @@ final class ProgressService {
                 currentTime: remote.currentTime,
                 totalDuration: remote.duration
             )
-            progress.isFinished = remote.isFinished
+            progress.isFinished = isFinished
+            progress.serverLastUpdate = serverDate
             progress.needsSync = false
             modelContext.insert(progress)
             book.progress = progress
@@ -373,11 +425,12 @@ final class ProgressService {
                 guard let server = mapping.server,
                       let client = serverService.client(for: server.id) else { continue }
 
+                // Only send isFinished when true — never un-finish a book on the server
                 let request = ProgressUpdateRequest(
                     progress: progress.progress,
                     currentTime: progress.currentTime,
                     duration: progress.totalDuration,
-                    isFinished: progress.isFinished
+                    isFinished: progress.isFinished ? true : nil
                 )
 
                 do {
@@ -398,6 +451,49 @@ final class ProgressService {
         }
 
         try? modelContext.save()
+    }
+
+    // MARK: - Re-evaluate Completion Threshold
+
+    /// Re-checks all books against the current completion settings and marks newly qualifying
+    /// books as finished. Never un-finishes a book — the server is authoritative for that.
+    @MainActor
+    func reapplyCompletionThreshold(
+        appState: AppState,
+        modelContext: ModelContext,
+        serverService: ServerService
+    ) async {
+        self.completionThreshold = appState.completionThreshold
+        self.completionThresholdMode = appState.completionThresholdMode
+        self.completionThresholdSeconds = appState.completionThresholdSeconds
+
+        let descriptor = FetchDescriptor<ListeningProgress>()
+        guard let allProgress = try? modelContext.fetch(descriptor) else { return }
+
+        for progress in allProgress {
+            guard progress.totalDuration > 0 else { continue }
+            guard !progress.isFinished else { continue } // never un-finish
+            let effectivePct = effectiveThreshold(forDuration: progress.totalDuration)
+            if progress.progress >= effectivePct {
+                progress.isFinished = true
+                progress.needsSync = true
+                progress.lastUpdated = Date()
+            }
+        }
+
+        try? modelContext.save()
+        await flushPendingSyncs(modelContext: modelContext, serverService: serverService)
+    }
+
+    /// Returns the effective percentage threshold for a book of the given duration.
+    func effectiveThreshold(forDuration duration: TimeInterval) -> Double {
+        switch completionThresholdMode {
+        case .percentage:
+            return completionThreshold
+        case .timeRemaining:
+            guard duration > 0 else { return 1.0 }
+            return max(0, (duration - Double(completionThresholdSeconds)) / duration)
+        }
     }
 
     // MARK: - Private Helpers

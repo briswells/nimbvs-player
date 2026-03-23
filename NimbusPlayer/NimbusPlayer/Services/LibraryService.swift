@@ -169,6 +169,7 @@ final class LibraryService {
                 existingBook.coverPath = primaryItem.media.coverPath ?? existingBook.coverPath
                 existingBook.seriesName = primaryItem.seriesName ?? existingBook.seriesName
                 existingBook.seriesSequence = primaryItem.seriesSequence ?? existingBook.seriesSequence
+                existingBook.seriesId = primaryItem.seriesId ?? existingBook.seriesId
                 if let genres = primaryItem.media.metadata.genres, !genres.isEmpty {
                     existingBook.genres = genres
                 }
@@ -188,6 +189,7 @@ final class LibraryService {
                     seriesName: primaryItem.seriesName,
                     seriesSequence: primaryItem.seriesSequence
                 )
+                newBook.seriesId = primaryItem.seriesId
                 newBook.genres = primaryItem.media.metadata.genres ?? []
                 modelContext.insert(newBook)
                 book = newBook

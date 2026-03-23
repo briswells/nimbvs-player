@@ -193,7 +193,9 @@ final class LibraryViewModel {
     // MARK: - Next in Series
 
     /// For each finished book that's in a series, find the next unstarted/unfinished book by sequence.
-    func nextInSeriesBooks(_ books: [CachedBook]) -> [CachedBook] {
+    /// Series whose server ID is in `hiddenSeriesIds` or name is in `hiddenSeriesNames` are excluded.
+    /// Books already in `excludeBookIds` (e.g. Continue Listening) are also excluded.
+    func nextInSeriesBooks(_ books: [CachedBook], hiddenSeriesIds: Set<String> = [], hiddenSeriesNames: Set<String> = [], excludeBookIds: Set<UUID> = []) -> [CachedBook] {
         var results: [CachedBook] = []
         var seen = Set<UUID>()
 
@@ -203,6 +205,10 @@ final class LibraryViewModel {
             guard let seriesName = finished.seriesName, !seriesName.isEmpty,
                   let currentSeq = finished.seriesSequence,
                   let currentNum = Double(currentSeq) else { continue }
+
+            // Skip if this series is hidden (by ID or by name)
+            if let sid = finished.seriesId, hiddenSeriesIds.contains(sid) { continue }
+            if hiddenSeriesNames.contains(seriesName) { continue }
 
             // Find the next book in the series by sequence number
             let next = books
@@ -219,7 +225,7 @@ final class LibraryViewModel {
                 .sorted { $0.1 < $1.1 }
                 .first?.0
 
-            if let next, seen.insert(next.id).inserted {
+            if let next, !excludeBookIds.contains(next.id), seen.insert(next.id).inserted {
                 results.append(next)
             }
         }
@@ -235,6 +241,10 @@ final class LibraryViewModel {
                 guard let progress = book.progress else { return false }
                 return progress.currentTime > 0 && !progress.isFinished
             }
-            .sorted { ($0.progress?.lastUpdated ?? .distantPast) > ($1.progress?.lastUpdated ?? .distantPast) }
+            .sorted {
+                let a = $0.progress?.serverLastUpdate ?? $0.progress?.lastUpdated ?? .distantPast
+                let b = $1.progress?.serverLastUpdate ?? $1.progress?.lastUpdated ?? .distantPast
+                return a > b
+            }
     }
 }

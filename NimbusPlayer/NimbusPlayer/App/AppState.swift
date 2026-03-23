@@ -9,6 +9,22 @@ extension Double {
     }
 }
 
+// MARK: - Completion Threshold Mode
+
+enum CompletionThresholdMode: String, CaseIterable, Identifiable {
+    case percentage
+    case timeRemaining
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .percentage: "Percentage"
+        case .timeRemaining: "Time Remaining"
+        }
+    }
+}
+
 // MARK: - Appearance Mode
 
 enum AppearanceMode: String, CaseIterable, Identifiable {
@@ -51,6 +67,10 @@ final class AppState {
         static let autoRemoveFinishedDownloads = "autoRemoveFinishedDownloads"
         static let appearanceMode = "appearanceMode"
         static let completionThreshold = "completionThreshold"
+        static let completionThresholdMode = "completionThresholdMode"
+        static let dismissedNextInSeries = "dismissedNextInSeries"
+        static let hiddenSeriesNames = "hiddenSeriesNames"
+        static let completionThresholdSeconds = "completionThresholdSeconds"
     }
 
     private let defaults: UserDefaults
@@ -90,6 +110,41 @@ final class AppState {
         didSet { defaults.set(completionThreshold, forKey: Keys.completionThreshold) }
     }
 
+    /// Whether completion is based on percentage or time remaining.
+    var completionThresholdMode: CompletionThresholdMode {
+        didSet { defaults.set(completionThresholdMode.rawValue, forKey: Keys.completionThresholdMode) }
+    }
+
+    /// Seconds of time remaining at which a book is considered finished (time remaining mode).
+    /// Default 300 (5 minutes).
+    var completionThresholdSeconds: Int {
+        didSet { defaults.set(completionThresholdSeconds, forKey: Keys.completionThresholdSeconds) }
+    }
+
+    /// Server series IDs hidden from "Next in Series" / "Continue Listening".
+    /// Synced with the server's `seriesHideFromContinueListening`.
+    var hiddenSeriesIds: Set<String> {
+        didSet { defaults.set(Array(hiddenSeriesIds), forKey: Keys.dismissedNextInSeries) }
+    }
+
+    /// Resolved series names for hidden series IDs (used as fallback when books lack seriesId).
+    var hiddenSeriesNames: Set<String> {
+        didSet { defaults.set(Array(hiddenSeriesNames), forKey: Keys.hiddenSeriesNames) }
+    }
+
+    func hideSeriesId(_ seriesId: String) {
+        hiddenSeriesIds.insert(seriesId)
+    }
+
+    func hideSeries(id: String, name: String) {
+        hiddenSeriesIds.insert(id)
+        hiddenSeriesNames.insert(name)
+    }
+
+    func unhideSeriesId(_ seriesId: String) {
+        hiddenSeriesIds.remove(seriesId)
+    }
+
     // MARK: - Init
 
     init(defaults: UserDefaults = .standard) {
@@ -115,5 +170,30 @@ final class AppState {
 
         let threshold = defaults.double(forKey: Keys.completionThreshold)
         self.completionThreshold = threshold > 0 ? threshold : 1.0
+
+        let modeRaw = defaults.string(forKey: Keys.completionThresholdMode) ?? CompletionThresholdMode.percentage.rawValue
+        self.completionThresholdMode = CompletionThresholdMode(rawValue: modeRaw) ?? .percentage
+
+        let seconds = defaults.integer(forKey: Keys.completionThresholdSeconds)
+        self.completionThresholdSeconds = seconds > 0 ? seconds : 300
+
+        let hidden = defaults.stringArray(forKey: Keys.dismissedNextInSeries) ?? []
+        self.hiddenSeriesIds = Set(hidden)
+
+        let hiddenNames = defaults.stringArray(forKey: Keys.hiddenSeriesNames) ?? []
+        self.hiddenSeriesNames = Set(hiddenNames)
+    }
+
+    /// Returns the effective percentage threshold (0.0–1.0) for a book of the given duration.
+    /// In percentage mode, returns `completionThreshold` directly.
+    /// In time-remaining mode, converts the seconds setting to an equivalent percentage.
+    func effectiveThreshold(forDuration duration: TimeInterval) -> Double {
+        switch completionThresholdMode {
+        case .percentage:
+            return completionThreshold
+        case .timeRemaining:
+            guard duration > 0 else { return 1.0 }
+            return max(0, (duration - Double(completionThresholdSeconds)) / duration)
+        }
     }
 }
