@@ -5,6 +5,8 @@ struct BookmarkListSheet: View {
     let playerService: AudioPlayerService
     let modelContext: ModelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(ServerService.self) private var serverService
+    @Environment(SyncQueueService.self) private var syncQueueService
 
     private var bookmarks: [Bookmark] {
         (playerService.currentBook?.bookmarks ?? [])
@@ -84,8 +86,22 @@ struct BookmarkListSheet: View {
     }
 
     private func deleteBookmarks(at offsets: IndexSet) {
-        for index in offsets {
-            modelContext.delete(bookmarks[index])
+        let toDelete = offsets.map { bookmarks[$0] }
+        for bookmark in toDelete {
+            let time = bookmark.timestamp
+            modelContext.delete(bookmark)
+
+            if let book = playerService.currentBook,
+               let mapping = book.preferredMapping,
+               let server = mapping.server {
+                syncQueueService.enqueue(
+                    action: .bookmarkDelete,
+                    payload: BookmarkDeletePayload(libraryItemId: mapping.libraryItemId, time: time),
+                    serverId: server.id,
+                    modelContext: modelContext,
+                    serverService: serverService
+                )
+            }
         }
         try? modelContext.save()
     }

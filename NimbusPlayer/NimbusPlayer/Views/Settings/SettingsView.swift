@@ -53,6 +53,8 @@ struct SettingsView: View {
                         Text("10s").tag(10)
                     }
 
+                    Toggle("Auto Sync Progress", isOn: $state.autoSyncProgress)
+
                     Picker("Completion Threshold", selection: $state.completionThresholdMode) {
                         ForEach(CompletionThresholdMode.allCases) { mode in
                             Text(mode.displayName).tag(mode)

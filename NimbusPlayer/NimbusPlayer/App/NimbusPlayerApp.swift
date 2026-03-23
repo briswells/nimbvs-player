@@ -12,6 +12,7 @@ struct NimbusPlayerApp: App {
     @State private var downloadService = DownloadService()
     @State private var networkMonitor = NetworkMonitor()
     @State private var libraryService = LibraryService()
+    @State private var syncQueueService = SyncQueueService()
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -32,6 +33,7 @@ struct NimbusPlayerApp: App {
                 .environment(downloadService)
                 .environment(networkMonitor)
                 .environment(libraryService)
+                .environment(syncQueueService)
                 .preferredColorScheme(colorScheme)
                 .onChange(of: scenePhase) { _, newPhase in
                     handleScenePhase(newPhase)
@@ -43,7 +45,8 @@ struct NimbusPlayerApp: App {
             ServerBookMapping.self,
             ListeningProgress.self,
             DownloadModel.self,
-            Bookmark.self
+            Bookmark.self,
+            PendingSyncAction.self
         ])
     }
 
@@ -104,13 +107,15 @@ struct NimbusPlayerApp: App {
         let syncTask = Task {
             let container = try ModelContainer(for:
                 Server.self, CachedBook.self, ServerBookMapping.self,
-                ListeningProgress.self, DownloadModel.self, Bookmark.self
+                ListeningProgress.self, DownloadModel.self, Bookmark.self,
+                PendingSyncAction.self
             )
             let context = ModelContext(container)
             let servers = (try? context.fetch(FetchDescriptor<Server>())) ?? []
 
             serverService.loadClients(servers: servers)
             await progressService.flushPendingSyncs(modelContext: context, serverService: serverService)
+            await syncQueueService.flushQueue(modelContext: context, serverService: serverService)
         }
 
         task.expirationHandler = {

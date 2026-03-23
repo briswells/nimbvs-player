@@ -17,6 +17,7 @@ struct UserResponse: Codable {
     let token: String
     let mediaProgress: [MediaProgressResponse]?
     let seriesHideFromContinueListening: [String]?
+    let bookmarks: [ServerBookmark]?
 }
 
 // MARK: - MediaProgressResponse
@@ -33,6 +34,16 @@ struct MediaProgressResponse: Codable {
     let lastUpdate: TimeInterval
     let startedAt: TimeInterval?
     let finishedAt: TimeInterval?
+}
+
+// MARK: - ServerBookmark
+
+/// A bookmark as returned by the Audiobookshelf API.
+struct ServerBookmark: Codable {
+    let libraryItemId: String
+    let time: Double
+    let title: String
+    let createdAt: TimeInterval
 }
 
 // MARK: - SeriesBasicResponse

@@ -433,7 +433,8 @@ struct BookDetailView: View {
     private var hasUnreachableServers: Bool {
         book.serverMappings.allSatisfy { mapping in
             guard let serverId = mapping.server?.id else { return true }
-            return serverService.serverStatuses[serverId] != .connected
+            let status = serverService.serverStatuses[serverId] ?? .unknown
+            return status == .unreachable || status == .authExpired
         }
     }
 
@@ -483,8 +484,14 @@ struct BookDetailView: View {
             // lastUpdate is in milliseconds
             let remoteDate = Date(timeIntervalSince1970: remote.lastUpdate / 1000)
             if remoteDate > localUpdate && abs(remote.currentTime - localTime) > 30 {
-                pendingRemoteProgress = remote
-                showSyncPrompt = true
+                if appState.autoSyncProgress {
+                    progressService.applyRemoteProgress(remote, to: book, modelContext: modelContext)
+                    toastMessage = "Progress synced from server"
+                    showToast = true
+                } else {
+                    pendingRemoteProgress = remote
+                    showSyncPrompt = true
+                }
             }
         }
     }

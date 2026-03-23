@@ -28,6 +28,7 @@ struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AudioPlayerService.self) private var playerService
     @Environment(ServerService.self) private var serverService
+    @Environment(SyncQueueService.self) private var syncQueueService
     @Environment(\.modelContext) private var modelContext
 
     @State private var viewModel = NowPlayingViewModel()
@@ -47,9 +48,20 @@ struct NowPlayingView: View {
 
     private func addBookmark(note: String? = nil) {
         guard let book = playerService.currentBook else { return }
-        let bookmark = Bookmark(book: book, timestamp: playerService.currentTime, note: note)
+        let time = playerService.currentTime
+        let title = note ?? "Bookmark at \(viewModel.formatTime(time))"
+        let bookmark = Bookmark(book: book, timestamp: time, note: note)
         modelContext.insert(bookmark)
         try? modelContext.save()
+
+        guard let mapping = book.preferredMapping, let server = mapping.server else { return }
+        syncQueueService.enqueue(
+            action: .bookmarkCreate,
+            payload: BookmarkCreatePayload(libraryItemId: mapping.libraryItemId, time: time, title: title),
+            serverId: server.id,
+            modelContext: modelContext,
+            serverService: serverService
+        )
     }
 
     // MARK: - Body
