@@ -39,23 +39,47 @@ final class LibraryService {
         isLoading = true
         lastError = nil
 
-        // Fetch from network (runs off main actor automatically for async calls)
-        var serverItems: [(Server, [LibraryItemResponse])] = []
+        // Build client list on main actor, then fetch off main
+        var clients: [(Server, APIClient)] = []
         for server in servers {
-            guard let client = serverService(server) else { continue }
+            if let client = serverService(server) {
+                clients.append((server, client))
+            }
+        }
+
+        // Network fetch + dedup runs off main actor
+        let result = await fetchAndDedup(clients: clients)
+
+        if let error = result.error {
+            lastError = error
+        }
+
+        // Only the SwiftData write needs main actor
+        persistBooks(result.mergedBooks, modelContext: modelContext)
+
+        isLoading = false
+    }
+
+    /// Fetches all items from all servers and deduplicates. Runs off the main actor.
+    private nonisolated func fetchAndDedup(
+        clients: [(Server, APIClient)]
+    ) async -> (mergedBooks: [MergedBook], error: String?) {
+        var serverItems: [(Server, [LibraryItemResponse])] = []
+        var firstError: String?
+
+        for (server, client) in clients {
             do {
                 let items = try await fetchAllItems(client: client)
                 serverItems.append((server, items))
             } catch {
-                lastError = "Failed to fetch from \(server.displayName): \(error.localizedDescription)"
+                if firstError == nil {
+                    firstError = "Failed to fetch from \(server.displayName): \(error.localizedDescription)"
+                }
             }
         }
 
-        // Dedup and persist on main actor (safe for SwiftData + @Observable)
-        let mergedBooks = deduplicateItems(serverItems)
-        persistBooks(mergedBooks, modelContext: modelContext)
-
-        isLoading = false
+        let merged = deduplicateItems(serverItems)
+        return (merged, firstError)
     }
 
     // MARK: - Fetch All Items
@@ -64,7 +88,7 @@ final class LibraryService {
     ///
     /// Each library is paginated independently (page counter resets per library).
     /// Only libraries with `mediaType == "book"` are included.
-    private func fetchAllItems(client: APIClient) async throws -> [LibraryItemResponse] {
+    private nonisolated func fetchAllItems(client: APIClient) async throws -> [LibraryItemResponse] {
         let librariesResponse = try await client.getLibraries()
         let bookLibraries = librariesResponse.libraries.filter { $0.mediaType == "book" }
 
@@ -99,7 +123,7 @@ final class LibraryService {
     /// Groups items from multiple servers into merged books using `BookMatcher.areMatching`.
     ///
     /// Items that match across servers are collapsed into a single `MergedBook`.
-    private func deduplicateItems(_ serverItems: [(Server, [LibraryItemResponse])]) -> [MergedBook] {
+    private nonisolated func deduplicateItems(_ serverItems: [(Server, [LibraryItemResponse])]) -> [MergedBook] {
         var mergedBooks: [MergedBook] = []
 
         for (server, items) in serverItems {

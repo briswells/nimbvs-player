@@ -2,7 +2,7 @@ name: NimbusPlayer
 options:
   bundleIdPrefix: com.nimbusplayer
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "26.0"
   xcodeVersion: "16.0"
   generateEmptyDirectories: true
 settings:

@@ -98,6 +98,7 @@ struct LibraryView: View {
                 GroupDetailView(group: group)
             }
             .refreshable {
+                await serverService.validateConnections(servers: servers)
                 await refreshLibrary()
             }
             .task(id: servers.count) {
@@ -106,16 +107,15 @@ struct LibraryView: View {
                 hasLoadedOnce = true
 
                 serverService.loadClients(servers: servers)
-                await serverService.validateConnections(servers: servers)
 
                 if books.isEmpty {
                     isInitialLoad = true
-                    await refreshLibrary()
-                    isInitialLoad = false
-                } else {
-                    // Background refresh on first launch
-                    await refreshLibrary()
                 }
+
+                await serverService.validateConnections(servers: servers)
+                await refreshLibrary()
+
+                if isInitialLoad { isInitialLoad = false }
             }
         }
     }
@@ -450,13 +450,42 @@ struct LibraryView: View {
             .tracking(1.2)
     }
 
-    private func refreshLibrary() async {
-        // Ensure clients are loaded and check server reachability
+    /// Fast sync: fetches user data (progress, bookmarks, hidden series) without re-fetching all library items.
+    private func quickSync() async {
         serverService.loadClients(servers: servers)
-        await serverService.validateConnections(servers: servers)
 
-        // Pull hidden series list FIRST so the view filters correctly as books load
-        await syncHiddenSeries()
+        var userResponses: [(Server, UserResponse)] = []
+        for server in servers where server.isActive {
+            guard let client = serverService.client(for: server.id) else { continue }
+            if let user = try? await client.getMe() {
+                userResponses.append((server, user))
+            }
+        }
+
+        applyHiddenSeries(from: userResponses)
+
+        progressService.completionThreshold = appState.completionThreshold
+        progressService.completionThresholdMode = appState.completionThresholdMode
+        progressService.completionThresholdSeconds = appState.completionThresholdSeconds
+
+        applyProgress(from: userResponses)
+        applyBookmarks(from: userResponses)
+        await syncQueueService.flushQueue(modelContext: modelContext, serverService: serverService)
+    }
+
+    /// Full refresh: fetches user data AND all library items from the server.
+    private func refreshLibrary() async {
+        serverService.loadClients(servers: servers)
+
+        var userResponses: [(Server, UserResponse)] = []
+        for server in servers where server.isActive {
+            guard let client = serverService.client(for: server.id) else { continue }
+            if let user = try? await client.getMe() {
+                userResponses.append((server, user))
+            }
+        }
+
+        applyHiddenSeries(from: userResponses)
 
         await viewModel.refresh(
             servers: servers,
@@ -465,30 +494,19 @@ struct LibraryView: View {
             },
             modelContext: modelContext
         )
-        // Set the threshold settings before syncing so pulled progress respects them
+
         progressService.completionThreshold = appState.completionThreshold
         progressService.completionThresholdMode = appState.completionThresholdMode
         progressService.completionThresholdSeconds = appState.completionThresholdSeconds
-        // Sync all progress from servers so "Continue Listening" populates immediately
-        await progressService.syncAllProgress(
-            servers: servers,
-            serverService: serverService,
-            modelContext: modelContext
-        )
 
-        // Sync bookmarks from server
-        await syncBookmarks()
-
-        // Flush any queued actions (bookmarks, series hide, etc.)
+        applyProgress(from: userResponses)
+        applyBookmarks(from: userResponses)
         await syncQueueService.flushQueue(modelContext: modelContext, serverService: serverService)
     }
 
-    private func syncBookmarks() async {
-        // Build lookup: libraryItemId → CachedBook
+    private func applyProgress(from responses: [(Server, UserResponse)]) {
         let allBooks: [CachedBook]
-        do {
-            allBooks = try modelContext.fetch(FetchDescriptor<CachedBook>())
-        } catch { return }
+        do { allBooks = try modelContext.fetch(FetchDescriptor<CachedBook>()) } catch { return }
 
         var itemIdToBook: [String: CachedBook] = [:]
         for book in allBooks {
@@ -497,66 +515,94 @@ struct LibraryView: View {
             }
         }
 
-        for server in servers where server.isActive {
-            guard let client = serverService.client(for: server.id) else { continue }
-            guard let user = try? await client.getMe(),
-                  let remoteBookmarks = user.bookmarks else { continue }
-
-            for remote in remoteBookmarks {
+        for (_, user) in responses {
+            guard let progressList = user.mediaProgress else { continue }
+            for remote in progressList {
+                guard remote.currentTime > 0 || remote.isFinished else { continue }
                 guard let book = itemIdToBook[remote.libraryItemId] else { continue }
 
-                // Check if we already have a bookmark at this time (within 1s tolerance)
+                let localTime = book.progress?.currentTime ?? 0
+                let localUpdate = book.progress?.lastUpdated ?? .distantPast
+                let remoteDate = Date(timeIntervalSince1970: remote.lastUpdate / 1000)
+
+                // Always update server timestamp for Continue Listening ordering
+                if let progress = book.progress {
+                    progress.serverLastUpdate = remoteDate
+                }
+
+                if localTime == 0 && remote.currentTime > 0 {
+                    progressService.applyRemoteProgress(remote, to: book, modelContext: modelContext)
+                } else if remoteDate > localUpdate && abs(remote.currentTime - localTime) > 30 {
+                    progressService.applyRemoteProgress(remote, to: book, modelContext: modelContext)
+                }
+            }
+        }
+    }
+
+    private func applyBookmarks(from responses: [(Server, UserResponse)]) {
+        let allBooks: [CachedBook]
+        do { allBooks = try modelContext.fetch(FetchDescriptor<CachedBook>()) } catch { return }
+
+        var itemIdToBook: [String: CachedBook] = [:]
+        for book in allBooks {
+            for mapping in book.serverMappings {
+                itemIdToBook[mapping.libraryItemId] = book
+            }
+        }
+
+        for (_, user) in responses {
+            guard let remoteBookmarks = user.bookmarks else { continue }
+            for remote in remoteBookmarks {
+                guard let book = itemIdToBook[remote.libraryItemId] else { continue }
                 let alreadyExists = book.bookmarks.contains { abs($0.timestamp - remote.time) < 1.0 }
                 if !alreadyExists {
-                    let bookmark = Bookmark(
-                        book: book,
-                        timestamp: remote.time,
-                        note: remote.title
-                    )
+                    let bookmark = Bookmark(book: book, timestamp: remote.time, note: remote.title)
                     bookmark.dateCreated = Date(timeIntervalSince1970: remote.createdAt / 1000)
                     modelContext.insert(bookmark)
                 }
             }
         }
-
         try? modelContext.save()
     }
 
-    private func syncHiddenSeries() async {
+    private func applyHiddenSeries(from responses: [(Server, UserResponse)]) {
         var allHiddenIds = Set<String>()
-        var anyClient: APIClient?
-
-        for server in servers where server.isActive {
-            guard let client = serverService.client(for: server.id) else { continue }
-            anyClient = client
-            guard let user = try? await client.getMe() else { continue }
+        for (_, user) in responses {
             if let hidden = user.seriesHideFromContinueListening {
                 allHiddenIds.formUnion(hidden)
             }
         }
 
-        // Resolve all hidden series IDs to names.
-        // Always resolve all IDs — the name set may be stale or empty from a prior install.
-        if let client = anyClient {
-            for seriesId in allHiddenIds {
-                if let name = try? await client.getSeriesName(seriesId: seriesId) {
-                    appState.hiddenSeriesNames.insert(name)
+        // Resolve new hidden IDs to names
+        let newIds = allHiddenIds.subtracting(appState.hiddenSeriesIds)
+        if !newIds.isEmpty, let (server, _) = responses.first,
+           let client = serverService.client(for: server.id) {
+            Task {
+                for seriesId in newIds {
+                    if let name = try? await client.getSeriesName(seriesId: seriesId) {
+                        appState.hiddenSeriesNames.insert(name)
+                    }
                 }
             }
         }
 
-        // Remove names for series that were un-hidden on the server
+        // Remove names for un-hidden series
         let removedIds = appState.hiddenSeriesIds.subtracting(allHiddenIds)
-        if !removedIds.isEmpty, let client = anyClient {
-            for seriesId in removedIds {
-                if let name = try? await client.getSeriesName(seriesId: seriesId) {
-                    appState.hiddenSeriesNames.remove(name)
+        if !removedIds.isEmpty, let (server, _) = responses.first,
+           let client = serverService.client(for: server.id) {
+            Task {
+                for seriesId in removedIds {
+                    if let name = try? await client.getSeriesName(seriesId: seriesId) {
+                        appState.hiddenSeriesNames.remove(name)
+                    }
                 }
             }
         }
 
         appState.hiddenSeriesIds = allHiddenIds
     }
+
+
 
     private func dismissSeriesFromContinueListening(book: CachedBook) {
         // Hide locally by name immediately (works even without seriesId)

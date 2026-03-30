@@ -11,7 +11,7 @@ struct ContentView: View {
             .task {
                 if !servers.isEmpty {
                     serverService.loadClients(servers: servers)
-                    await serverService.validateConnections(servers: servers)
+                    // Don't block — LibraryView handles validation and sync
                 }
             }
             .onAppear {
@@ -35,25 +35,21 @@ struct MainTabView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView {
-                LibraryView()
-                    .tabItem {
-                        Label("Library", systemImage: "book.fill")
-                    }
+                Tab("Library", systemImage: "book.fill") {
+                    LibraryView()
+                }
 
-                SearchView()
-                    .tabItem {
-                        Label("Search", systemImage: "magnifyingglass")
-                    }
+                Tab("Search", systemImage: "magnifyingglass") {
+                    SearchView()
+                }
 
-                DownloadsView()
-                    .tabItem {
-                        Label("Downloads", systemImage: "arrow.down.circle.fill")
-                    }
+                Tab("Downloads", systemImage: "arrow.down.circle.fill") {
+                    DownloadsView()
+                }
 
-                SettingsView()
-                    .tabItem {
-                        Label("Settings", systemImage: "gearshape.fill")
-                    }
+                Tab("Settings", systemImage: "gearshape.fill") {
+                    SettingsView()
+                }
             }
             .tint(NimbusTheme.Colors.accentPink)
 
@@ -61,7 +57,8 @@ struct MainTabView: View {
                 VStack(spacing: 0) {
                     Spacer()
                     MiniPlayerBar(showNowPlaying: $showNowPlaying)
-                        .padding(.bottom, NimbusTheme.Dimensions.tabBarHeight)
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, NimbusTheme.Dimensions.tabBarHeight + 2)
                 }
             }
         }
@@ -70,11 +67,21 @@ struct MainTabView: View {
         }
         .onChange(of: playerService.didFinishBook) { _, finished in
             guard finished else { return }
-            // Dismiss now playing, then clear the player after progress has been saved
-            showNowPlaying = false
-            Task {
-                try? await Task.sleep(for: .seconds(1))
+            // Dismiss the full-screen player first, then clean up after it animates out
+            if showNowPlaying {
+                showNowPlaying = false
+                Task {
+                    try? await Task.sleep(for: .seconds(0.5))
+                    playerService.stop()
+                }
+            } else {
                 playerService.stop()
+            }
+        }
+        .onChange(of: playerService.currentBook == nil) { _, isNil in
+            // Safety: if currentBook is cleared while player is showing, dismiss it
+            if isNil && showNowPlaying {
+                showNowPlaying = false
             }
         }
     }
