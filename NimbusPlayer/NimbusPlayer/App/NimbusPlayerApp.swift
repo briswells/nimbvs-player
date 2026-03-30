@@ -133,7 +133,19 @@ struct NimbusPlayerApp: App {
     private func handleScenePhase(_ phase: ScenePhase) {
         switch phase {
         case .active:
-            break
+            // Re-validate server connections when returning from background
+            Task {
+                let container = try? ModelContainer(for:
+                    Server.self, CachedBook.self, ServerBookMapping.self,
+                    ListeningProgress.self, DownloadModel.self, Bookmark.self,
+                    PendingSyncAction.self
+                )
+                if let context = container.map({ ModelContext($0) }),
+                   let servers = try? context.fetch(FetchDescriptor<Server>()) {
+                    serverService.loadClients(servers: servers)
+                    await serverService.validateConnections(servers: servers)
+                }
+            }
         case .background:
             scheduleBackgroundSync()
         case .inactive:

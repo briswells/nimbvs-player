@@ -15,15 +15,13 @@ struct MiniPlayerBar: View {
 
     @Environment(AudioPlayerService.self) private var playerService
     @Environment(ServerService.self) private var serverService
+    @Environment(AppState.self) private var appState
 
     // MARK: - Body
 
     var body: some View {
         if let book = playerService.currentBook {
             VStack(spacing: 0) {
-                // Thin progress line at top
-                progressLine
-
                 HStack(spacing: 12) {
                     // Cover thumbnail
                     coverThumbnail(book: book)
@@ -46,6 +44,16 @@ struct MiniPlayerBar: View {
 
                     Spacer()
 
+                    // Skip backward button
+                    Button {
+                        playerService.skipBackward(TimeInterval(appState.skipBackwardDuration))
+                    } label: {
+                        Image(systemName: "gobackward.\(appState.skipBackwardDuration)")
+                            .font(.body)
+                            .foregroundStyle(NimbusTheme.Colors.textSecondary)
+                            .frame(width: 36, height: 36)
+                    }
+
                     // Play/Pause button
                     Button {
                         playerService.togglePlayPause()
@@ -58,9 +66,9 @@ struct MiniPlayerBar: View {
 
                     // Skip forward button
                     Button {
-                        playerService.skipForward()
+                        playerService.skipForward(TimeInterval(appState.skipForwardDuration))
                     } label: {
-                        Image(systemName: "goforward.30")
+                        Image(systemName: "goforward.\(appState.skipForwardDuration)")
                             .font(.body)
                             .foregroundStyle(NimbusTheme.Colors.textSecondary)
                             .frame(width: 36, height: 36)
@@ -68,9 +76,12 @@ struct MiniPlayerBar: View {
                 }
                 .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
                 .padding(.vertical, 8)
+
+                progressLine
+                    .padding(.horizontal, NimbusTheme.Dimensions.paddingMedium)
             }
-            .background(NimbusTheme.Colors.surfaceElevated)
-            .contentShape(Rectangle())
+            .contentShape(RoundedRectangle(cornerRadius: 20))
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
             .onTapGesture {
                 showNowPlaying = true
             }
@@ -86,6 +97,7 @@ struct MiniPlayerBar: View {
         }
         .frame(height: 2)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .clipShape(Capsule())
     }
 
     // MARK: - Cover

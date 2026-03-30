@@ -29,6 +29,7 @@ struct NowPlayingView: View {
     @Environment(AudioPlayerService.self) private var playerService
     @Environment(ServerService.self) private var serverService
     @Environment(SyncQueueService.self) private var syncQueueService
+    @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
 
     @State private var viewModel = NowPlayingViewModel()
@@ -303,9 +304,9 @@ struct NowPlayingView: View {
 
             // Rewind 30s
             Button {
-                playerService.skipBackward()
+                playerService.skipBackward(TimeInterval(appState.skipBackwardDuration))
             } label: {
-                Image(systemName: "gobackward.30")
+                Image(systemName: "gobackward.\(appState.skipBackwardDuration)")
                     .font(.title2)
                     .foregroundStyle(NimbusTheme.Colors.textPrimary)
                     .frame(width: 52, height: 52)
@@ -338,9 +339,9 @@ struct NowPlayingView: View {
 
             // Forward 30s
             Button {
-                playerService.skipForward()
+                playerService.skipForward(TimeInterval(appState.skipForwardDuration))
             } label: {
-                Image(systemName: "goforward.30")
+                Image(systemName: "goforward.\(appState.skipForwardDuration)")
                     .font(.title2)
                     .foregroundStyle(NimbusTheme.Colors.textPrimary)
                     .frame(width: 52, height: 52)

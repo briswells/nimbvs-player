@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcodebuild -scheme NimbusPlayer -sdk iphonesimulator -destination 'platform=iOS Simulator,id=30E7C5CE-0F71-4B67-BCA2-CAEBE73A5E5D' -derivedDataPath build)",
+      "Bash(curl -s -X POST 'https://listen.zerakan.com/login' -H 'Content-Type: application/json' -d '{\"\"\"\"username\"\"\"\":\"\"\"\"Brian\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"Therebel1!\"\"\"\"}')",
+      "Bash(python3 -m json.tool)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJlZWExYjAwMi0yOGMxLTQyOGEtYmJlMy1hNDlhNGI4NDliN2YiLCJ1c2VybmFtZSI6IkJyaWFuIiwiaWF0IjoxNzY2NDM5NzcwfQ.GRvw_uTo1DygMu5c2fsyOFlKov9Z-5WIf0iJBplUlAY\")",
+      "Bash(curl -s \"https://listen.zerakan.com/api/libraries\" -H \"Authorization: Bearer $TOKEN\")",
+      "Bash(python3 -c \"import json,sys; libs=json.load\\(sys.stdin\\)[''''libraries'''']; [print\\(f\"\"{l[''''id'''']} - {l[''''name'''']} \\({l[''''mediaType'''']}\\)\"\"\\) for l in libs]\")",
+      "Bash(curl -s \"https://listen.zerakan.com/api/libraries/3ea2f74c-810a-4921-973f-6088098c934b/search?q=Rama\" -H \"Authorization: Bearer $TOKEN\")",
+      "WebFetch(domain:api.audiobookshelf.org)",
+      "WebSearch",
+      "Bash(xcrun simctl:*)",
+      "Bash(sshpass -p 'Therebel1!' ssh -o StrictHostKeyChecking=no root@192.168.0.10 \"ls /mnt/user/plex_media/music/\")"
+    ]
+  }
+}
