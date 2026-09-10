@@ -1,7 +1,0 @@
-{"type":"server-started","port":50599,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:50599","screen_dir":"/Users/brianwells/Audiobook/.superpowers/brainstorm/68903-1773934924"}
-{"type":"screen-added","file":"/Users/brianwells/Audiobook/.superpowers/brainstorm/68903-1773934924/design-direction.html"}
-{"source":"user-event","type":"click","text":"🎧\n          \n            Project Hail Mary\n            Andy Weir\n            \n            Chapter 12 • 4h 23m left\n          \n        \n        \n          ⏮\n          ▶\n          ⏭\n        \n        \n          📚Library\n          ▶Playing\n          🔍Search\n          📥Downloads\n        \n      \n    \n    \n      A — Dark & Cinematic\n      Deep blues and purples, gradient accents, immersive feel. Great for nighttime listening. Moody, premium aesthetic similar to streaming apps.","choice":"a","id":null,"timestamp":1773935256639}
-{"type":"screen-added","file":"/Users/brianwells/Audiobook/.superpowers/brainstorm/68903-1773934924/layout-v2.html"}
-{"type":"screen-added","file":"/Users/brianwells/Audiobook/.superpowers/brainstorm/68903-1773934924/layout-v3.html"}
-{"type":"screen-added","file":"/Users/brianwells/Audiobook/.superpowers/brainstorm/68903-1773934924/waiting.html"}
-{"type":"server-stopped","reason":"idle timeout"}

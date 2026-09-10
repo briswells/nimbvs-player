@@ -35,3 +35,8 @@ Pods/
 .DS_Store
 .AppleDouble
 .LSOverride
+
+# Claude Code / Superpowers skill artifacts (local only, not part of the project)
+.claude/
+.superpowers/
+superpowers/
