@@ -22,6 +22,11 @@ struct SettingsView: View {
                     } label: {
                         Label("Listening Stats", systemImage: "chart.bar.fill")
                     }
+                    NavigationLink {
+                        ListeningHistoryView(filter: .all)
+                    } label: {
+                        Label("Listening History", systemImage: "clock.arrow.circlepath")
+                    }
                 }
 
                 Section("Playback") {

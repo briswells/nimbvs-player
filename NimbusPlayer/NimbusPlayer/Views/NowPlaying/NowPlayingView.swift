@@ -29,6 +29,8 @@ struct NowPlayingView: View {
     @Environment(AudioPlayerService.self) private var playerService
     @Environment(ServerService.self) private var serverService
     @Environment(SyncQueueService.self) private var syncQueueService
+    @Environment(ProgressService.self) private var progressService
+    @Environment(DownloadService.self) private var downloadService
     @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
 
@@ -37,6 +39,7 @@ struct NowPlayingView: View {
     @State private var showAddBookmark = false
     @State private var bookmarkNote = ""
     @State private var showSpeedPicker = false
+    @State private var showHistory = false
 
     // MARK: - Computed Properties
 
@@ -108,6 +111,23 @@ struct NowPlayingView: View {
         .sheet(isPresented: $showSpeedPicker) {
             SpeedPickerSheet(playerService: playerService)
                 .presentationDetents([.height(200)])
+        }
+        .sheet(isPresented: $showHistory) {
+            if let book = playerService.currentBook {
+                NavigationStack {
+                    ListeningHistoryView(filter: .book(book))
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { showHistory = false }
+                            }
+                        }
+                }
+                .environment(playerService)
+                .environment(serverService)
+                .environment(progressService)
+                .environment(downloadService)
+                .environment(appState)
+            }
         }
         .alert("Add Bookmark", isPresented: $showAddBookmark) {
             TextField("Note (optional)", text: $bookmarkNote)
@@ -473,18 +493,19 @@ struct NowPlayingView: View {
 
             Spacer()
 
-            // Download (placeholder)
+            // History
             Button {
-                // Placeholder — download functionality
+                showHistory = true
             } label: {
                 VStack(spacing: 4) {
-                    Image(systemName: "arrow.down.circle")
+                    Image(systemName: "clock.arrow.circlepath")
                         .font(.body)
-                    Text("Download")
+                    Text("History")
                         .font(.caption2)
                 }
                 .foregroundStyle(NimbusTheme.Colors.textSecondary)
             }
+            .disabled(playerService.currentBook == nil)
 
             Spacer()
 

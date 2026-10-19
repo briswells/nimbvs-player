@@ -77,6 +77,10 @@ final class ProgressService {
         let currentTime = playerService.currentTime
         let duration = playerService.duration
 
+        // Reject obviously invalid positions (e.g. a stale currentTime left
+        // over from a different book whose duration was longer).
+        guard currentTime >= 0, currentTime <= duration + 5 else { return }
+
         if let progress = book.progress {
             // Only save if position changed by at least 1 second
             guard abs(progress.currentTime - currentTime) >= 1.0 || playerService.didFinishBook else { return }
@@ -328,6 +332,13 @@ final class ProgressService {
                     progress.serverLastUpdate = remoteDate
                 }
 
+                // Never let the server regress local progress by more than 60s
+                // unless the book is explicitly marked finished. Protects against
+                // transient auth/session desync returning stale or zeroed state.
+                if !remote.isFinished && localTime > 0 && remote.currentTime < localTime - 60 {
+                    continue
+                }
+
                 if localTime == 0 && remote.currentTime > 0 {
                     applyRemoteProgress(remote, to: book, modelContext: modelContext)
                 } else if remoteDate > localUpdate && abs(remote.currentTime - localTime) > 30 {
@@ -516,6 +527,6 @@ final class ProgressService {
         guard let server = try? modelContext.fetch(descriptor).first,
               let baseURL = server.baseURL else { return nil }
 
-        return APIClient(baseURL: baseURL, token: token)
+        return APIClient(baseURL: baseURL, token: token, serverId: serverId)
     }
 }

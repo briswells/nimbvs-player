@@ -39,6 +39,7 @@ struct BookDetailView: View {
                 statsSection
                 progressSection
                 actionButtons
+                historyLink
                 descriptionSection
                 chapterListSection
             }
@@ -496,79 +497,61 @@ struct BookDetailView: View {
         }
     }
 
+    // MARK: - Listening History
+
+    @ViewBuilder
+    private var historyLink: some View {
+        // Only surface the link when the book has at least some listening progress —
+        // proxy for "there's a session worth showing."
+        if let progress = book.progress, progress.currentTime > 0 {
+            NavigationLink {
+                ListeningHistoryView(filter: .book(book))
+            } label: {
+                HStack {
+                    Label("Listening History", systemImage: "clock.arrow.circlepath")
+                        .foregroundStyle(NimbusTheme.Colors.textPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(NimbusTheme.Colors.textTertiary)
+                        .font(.caption)
+                }
+                .padding(NimbusTheme.Dimensions.paddingMedium)
+                .background(NimbusTheme.Colors.surfaceOverlay)
+                .clipShape(RoundedRectangle(cornerRadius: NimbusTheme.Dimensions.smallCornerRadius))
+            }
+        }
+    }
+
     // MARK: - Playback
 
     private func startPlayback() async {
         isStartingPlayback = true
+        defer { isStartingPlayback = false }
 
-        // Always prefer local files if downloaded — faster and works offline
-        if isBookDownloaded {
-            playOffline()
-            isStartingPlayback = false
-            return
-        }
+        let result = await PlaybackStarter.start(
+            book: book,
+            startTime: book.progress?.currentTime,
+            playerService: playerService,
+            progressService: progressService,
+            serverService: serverService,
+            downloadService: downloadService,
+            appState: appState,
+            modelContext: modelContext
+        )
 
-        guard let mapping = book.preferredMapping,
-              let serverId = mapping.server?.id,
-              let client = serverService.client(for: serverId) else {
+        switch result {
+        case .started, .startedOffline:
+            showNowPlaying = true
+        case .startedOnAlternateServer(let name):
+            showNowPlaying = true
+            toastMessage = "Playing from \(name)"
+            showToast = true
+        case .noServerAvailable:
             toastMessage = "No server available and book not downloaded"
             showToast = true
-            isStartingPlayback = false
-            return
-        }
-
-        await attemptPlayback(client: client, mapping: mapping, serverId: serverId)
-        isStartingPlayback = false
-    }
-
-    private func playOffline() {
-        playerService.startOfflinePlayback(
-            book: book,
-            downloadService: downloadService,
-            startTime: book.progress?.currentTime
-        )
-        showNowPlaying = true
-    }
-
-    private func attemptPlayback(client: APIClient, mapping: ServerBookMapping, serverId: UUID) async {
-        let request = PlaybackSessionRequest.defaultRequest(
-            deviceId: UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString,
-            appVersion: "1.0"
-        )
-
-        do {
-            let session = try await client.startPlaybackSession(
-                itemId: mapping.libraryItemId,
-                requestBody: request
-            )
-
-            await MainActor.run {
-                playerService.setServerServiceRef(serverService)
-                playerService.startPlayback(
-                    book: book,
-                    session: session,
-                    serverId: serverId,
-                    serverService: serverService,
-                    startTime: book.progress?.currentTime
-                )
-                progressService.startTracking(playerService: playerService, modelContext: modelContext, appState: appState)
-                showNowPlaying = true
-
-                if mapping.id != book.preferredMapping?.id {
-                    toastMessage = "Playing from \(mapping.server?.displayName ?? "alternate server")"
-                    showToast = true
-                }
-            }
-        } catch {
-            // Server failed — fall back to offline if downloaded
-            if isBookDownloaded {
-                await MainActor.run { playOffline() }
-            } else {
-                await MainActor.run {
-                    toastMessage = "Playback failed: \(error.localizedDescription)"
-                    showToast = true
-                }
-            }
+        case .failed(let message):
+            toastMessage = "Playback failed: \(message)"
+            showToast = true
         }
     }
 }

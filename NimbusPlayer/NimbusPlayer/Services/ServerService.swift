@@ -29,6 +29,27 @@ final class ServerService {
     /// Current status of each server keyed by server ID.
     private(set) var serverStatuses: [UUID: ServerStatus] = [:]
 
+    private var unauthorizedObserver: NSObjectProtocol?
+
+    // MARK: - Init
+
+    init() {
+        unauthorizedObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name.apiClientUnauthorized,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let serverId = note.userInfo?["serverId"] as? UUID else { return }
+            self?.serverStatuses[serverId] = .authExpired
+        }
+    }
+
+    deinit {
+        if let unauthorizedObserver {
+            NotificationCenter.default.removeObserver(unauthorizedObserver)
+        }
+    }
+
     // MARK: - Client Access
 
     /// Returns the API client for the given server, if one has been registered.
@@ -50,7 +71,7 @@ final class ServerService {
 
             do {
                 if let token = try keychain.getToken(for: server.id) {
-                    let client = APIClient(baseURL: baseURL, token: token)
+                    let client = APIClient(baseURL: baseURL, token: token, serverId: server.id)
                     clients[server.id] = client
                     // Only set .unknown if not already validated — avoid resetting .connected
                     if serverStatuses[server.id] == nil {
@@ -81,7 +102,7 @@ final class ServerService {
             throw APIError.invalidURL
         }
 
-        let client = APIClient(baseURL: baseURL, token: token)
+        let client = APIClient(baseURL: baseURL, token: token, serverId: server.id)
         clients[server.id] = client
         serverStatuses[server.id] = .connected
     }

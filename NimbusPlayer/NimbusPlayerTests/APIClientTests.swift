@@ -44,4 +44,36 @@ struct APIClientTests {
         #expect(request.httpMethod == "GET")
         #expect(request.timeoutInterval == 15)
     }
+
+    // MARK: - getListeningSessions URL tests
+
+    @Test func listeningSessionsURLNoFilter() throws {
+        let url = try client.buildURL(
+            path: "/api/me/listening-sessions",
+            query: [
+                URLQueryItem(name: "page", value: "0"),
+                URLQueryItem(name: "itemsPerPage", value: "25")
+            ]
+        )
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        #expect(components.path == "/api/me/listening-sessions")
+        let items = components.queryItems ?? []
+        #expect(items.contains(URLQueryItem(name: "page", value: "0")))
+        #expect(items.contains(URLQueryItem(name: "itemsPerPage", value: "25")))
+        #expect(!items.contains(where: { $0.name == "libraryItemId" }))
+    }
+
+    @Test func listeningSessionsURLWithFilter() throws {
+        let url = try client.buildURL(
+            path: "/api/me/listening-sessions",
+            query: [
+                URLQueryItem(name: "page", value: "1"),
+                URLQueryItem(name: "itemsPerPage", value: "25"),
+                URLQueryItem(name: "libraryItemId", value: "item-abc")
+            ]
+        )
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        let items = components.queryItems ?? []
+        #expect(items.contains(URLQueryItem(name: "libraryItemId", value: "item-abc")))
+    }
 }

@@ -40,6 +40,11 @@ struct ProgressUpdateRequest: Codable {
 
 // MARK: - APIClient
 
+extension Notification.Name {
+    /// Posted when an API call returns 401. `userInfo["serverId"]` is the server UUID if known.
+    static let apiClientUnauthorized = Notification.Name("apiClientUnauthorized")
+}
+
 /// HTTP client for communicating with the Audiobookshelf server API.
 final class APIClient {
 
@@ -47,18 +52,28 @@ final class APIClient {
 
     let baseURL: URL
     let token: String
+    let serverId: UUID?
     private let session: URLSession
     private let decoder: JSONDecoder
 
     // MARK: - Init
 
-    init(baseURL: URL, token: String, session: URLSession = .shared) {
+    init(baseURL: URL, token: String, serverId: UUID? = nil, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.token = token
+        self.serverId = serverId
         self.session = session
 
         let decoder = JSONDecoder()
         self.decoder = decoder
+    }
+
+    /// Called from request/requestVoid on a 401 response so observers (e.g. ServerService)
+    /// can mark the server as auth-expired and prompt re-login.
+    private func notifyUnauthorized() {
+        var info: [AnyHashable: Any] = [:]
+        if let serverId { info["serverId"] = serverId }
+        NotificationCenter.default.post(name: .apiClientUnauthorized, object: nil, userInfo: info)
     }
 
     // MARK: - URL Building
@@ -141,6 +156,7 @@ final class APIClient {
         }
 
         if httpResponse.statusCode == 401 {
+            notifyUnauthorized()
             throw APIError.unauthorized
         }
 
@@ -186,6 +202,7 @@ final class APIClient {
         }
 
         if httpResponse.statusCode == 401 {
+            notifyUnauthorized()
             throw APIError.unauthorized
         }
 
@@ -366,6 +383,32 @@ final class APIClient {
     /// Fetches listening statistics.
     func getListeningStats() async throws -> ListeningStatsResponse {
         try await request(ListeningStatsResponse.self, method: "GET", path: "/api/me/listening-stats")
+    }
+
+    /// Fetches a page of listening sessions for the authenticated user.
+    ///
+    /// - Parameters:
+    ///   - itemId: If non-nil, filters to sessions for this library item.
+    ///   - page: Zero-based page index.
+    ///   - itemsPerPage: Page size. Defaults to 25.
+    func getListeningSessions(
+        itemId: String? = nil,
+        page: Int = 0,
+        itemsPerPage: Int = 25
+    ) async throws -> ListeningSessionsPage {
+        var query: [URLQueryItem] = [
+            URLQueryItem(name: "page", value: "\(page)"),
+            URLQueryItem(name: "itemsPerPage", value: "\(itemsPerPage)")
+        ]
+        if let itemId {
+            query.append(URLQueryItem(name: "libraryItemId", value: itemId))
+        }
+        return try await request(
+            ListeningSessionsPage.self,
+            method: "GET",
+            path: "/api/me/listening-sessions",
+            query: query
+        )
     }
 
     // MARK: - URL Builders

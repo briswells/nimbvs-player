@@ -90,7 +90,14 @@ final class AudioPlayerService {
         // Use per-book speed if available, otherwise keep current speed
         self.playbackSpeed = book.progress?.playbackSpeed ?? playbackSpeed
 
-        let resumeTime = startTime ?? session.currentTime
+        // Prefer whichever source is further along so we never regress progress
+        // when switching books or when local/server are briefly out of sync.
+        let resumeTime = max(startTime ?? 0, session.currentTime)
+
+        // Reset currentTime immediately so the ProgressService save timer can't
+        // persist the previous book's position during the short window before
+        // the new player's time observer fires.
+        self.currentTime = resumeTime
 
         // Find the correct track for the resume time
         guard let (trackIndex, trackLocalTime) = findTrack(for: resumeTime) else { return }
@@ -165,6 +172,7 @@ final class AudioPlayerService {
         self.isOffline = true
 
         let resumeTime = startTime ?? book.progress?.currentTime ?? 0
+        self.currentTime = resumeTime
         guard let (trackIndex, trackLocalTime) = findTrack(for: resumeTime) else { return }
 
         setupAudioSession()
