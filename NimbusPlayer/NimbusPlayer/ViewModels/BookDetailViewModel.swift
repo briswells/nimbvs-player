@@ -15,6 +15,10 @@ final class BookDetailViewModel {
 
     /// Fetches the full item details from the preferred server mapping and extracts chapters.
     /// Caches chapters locally so they're available offline.
+    ///
+    /// Main-actor isolated because it reads SwiftData models (`book`, its mappings), which are
+    /// bound to the main context and must not be touched from a background executor.
+    @MainActor
     func loadDetails(book: CachedBook, serverService: ServerService) async {
         guard !isLoadingDetails else { return }
         isLoadingDetails = true

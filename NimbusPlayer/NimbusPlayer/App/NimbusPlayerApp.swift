@@ -39,16 +39,28 @@ struct NimbusPlayerApp: App {
                     handleScenePhase(newPhase)
                 }
         }
-        .modelContainer(for: [
-            Server.self,
-            CachedBook.self,
-            ServerBookMapping.self,
-            ListeningProgress.self,
-            DownloadModel.self,
-            Bookmark.self,
-            PendingSyncAction.self
-        ])
+        .modelContainer(Self.sharedModelContainer)
     }
+
+    /// The single SwiftData container for the app. Background sync and scene-phase handling must
+    /// use this rather than opening a second container on the same store: objects saved or deleted
+    /// through another container aren't reflected in the UI's context, leaving views holding
+    /// invalidated models (SwiftData then crashes in `getValue(forKey:)`).
+    static let sharedModelContainer: ModelContainer = {
+        do {
+            return try ModelContainer(for:
+                Server.self,
+                CachedBook.self,
+                ServerBookMapping.self,
+                ListeningProgress.self,
+                DownloadModel.self,
+                Bookmark.self,
+                PendingSyncAction.self
+            )
+        } catch {
+            fatalError("Failed to create ModelContainer: \(error)")
+        }
+    }()
 
     private var colorScheme: ColorScheme? {
         switch appState.appearanceMode {
@@ -104,13 +116,8 @@ struct NimbusPlayerApp: App {
         // Schedule the next one
         scheduleBackgroundSync()
 
-        let syncTask = Task {
-            let container = try ModelContainer(for:
-                Server.self, CachedBook.self, ServerBookMapping.self,
-                ListeningProgress.self, DownloadModel.self, Bookmark.self,
-                PendingSyncAction.self
-            )
-            let context = ModelContext(container)
+        let syncTask = Task { @MainActor in
+            let context = Self.sharedModelContainer.mainContext
             let servers = (try? context.fetch(FetchDescriptor<Server>())) ?? []
 
             serverService.loadClients(servers: servers)
@@ -134,14 +141,9 @@ struct NimbusPlayerApp: App {
         switch phase {
         case .active:
             // Re-validate server connections when returning from background
-            Task {
-                let container = try? ModelContainer(for:
-                    Server.self, CachedBook.self, ServerBookMapping.self,
-                    ListeningProgress.self, DownloadModel.self, Bookmark.self,
-                    PendingSyncAction.self
-                )
-                if let context = container.map({ ModelContext($0) }),
-                   let servers = try? context.fetch(FetchDescriptor<Server>()) {
+            Task { @MainActor in
+                let context = Self.sharedModelContainer.mainContext
+                if let servers = try? context.fetch(FetchDescriptor<Server>()) {
                     serverService.loadClients(servers: servers)
                     await serverService.validateConnections(servers: servers)
                 }

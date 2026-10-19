@@ -89,6 +89,10 @@ final class ServerService {
     // MARK: - Validation
 
     /// Checks authentication status for all servers in parallel and updates `serverStatuses`.
+    ///
+    /// Main-actor isolated: `serverStatuses` is also mutated on the main thread (status observer,
+    /// `loadClients`, `removeServer`) and read by SwiftUI, and `servers` are SwiftData models.
+    @MainActor
     func validateConnections(servers: [Server]) async {
         logger.warning("validateConnections called for \(servers.count) servers")
         for server in servers {

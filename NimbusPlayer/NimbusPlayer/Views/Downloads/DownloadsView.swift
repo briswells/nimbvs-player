@@ -53,6 +53,16 @@ struct DownloadRow: View {
     let viewModel: DownloadsViewModel
 
     var body: some View {
+        // A just-deleted model can still be rendered once before @Query drops it; reading its
+        // persisted properties then trips a SwiftData assertion.
+        if download.isDeleted || download.modelContext == nil {
+            EmptyView()
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(download.book?.title ?? "Unknown")
