@@ -28,6 +28,12 @@ struct PlaybackStarter {
         appState: AppState,
         modelContext: ModelContext
     ) async -> PlaybackStartResult {
+        // Close the session being replaced so the server stops treating it as open and records
+        // its final listening time.
+        if playerService.sessionId != nil {
+            await progressService.closeSession(playerService: playerService, modelContext: modelContext)
+        }
+
         // Prefer local files when downloaded — faster and works offline.
         if downloadService.isBookDownloaded(bookId: book.id) {
             playerService.startOfflinePlayback(

@@ -24,6 +24,10 @@ final class ProgressService {
     /// Listening session for the current offline (downloaded-file) playback, if any.
     @ObservationIgnored private var activeLocalSession: PendingLocalSession?
     @ObservationIgnored private var lastListenTick: Date?
+
+    /// Wall-clock listening time for the current streaming session not yet reported to the server.
+    @ObservationIgnored private var streamingListenedSinceSync: TimeInterval = 0
+    @ObservationIgnored private var streamingListenSessionId: String?
     @ObservationIgnored private let localSessionStore = LocalSessionStore()
 
     /// Id of the in-progress offline listening session, so history can hide it like a live one.
@@ -46,6 +50,7 @@ final class ProgressService {
         self.completionThresholdSeconds = appState.completionThresholdSeconds
         stopTracking()
 
+        lastListenTick = Date()
         if playerService.isOffline {
             beginLocalSession(playerService: playerService)
         }
@@ -54,7 +59,7 @@ final class ProgressService {
             guard let self else { return }
             // Defer to next run loop iteration to avoid colliding with SwiftUI renders
             Task { @MainActor in
-                self.recordLocalListening(playerService: playerService)
+                self.recordListening(playerService: playerService)
                 self.saveLocalProgress(playerService: playerService, modelContext: modelContext)
             }
         }
@@ -77,6 +82,42 @@ final class ProgressService {
         syncTimer = nil
         activeLocalSession = nil
         lastListenTick = nil
+        streamingListenedSinceSync = 0
+        streamingListenSessionId = nil
+    }
+
+    // MARK: - Listening Time
+
+    /// Credits wall-clock time since the last tick (capped at `LocalPlaybackSession.maxTickSeconds`)
+    /// while audio is playing: to the streaming session's unsynced total, or to the offline session.
+    @MainActor
+    private func recordListening(playerService: AudioPlayerService) {
+        let now = Date()
+        defer { lastListenTick = now }
+
+        guard let last = lastListenTick, playerService.isPlaying else { return }
+        let elapsed = min(max(now.timeIntervalSince(last), 0), LocalPlaybackSession.maxTickSeconds)
+
+        if let sessionId = playerService.sessionId {
+            if sessionId != streamingListenSessionId {
+                streamingListenSessionId = sessionId
+                streamingListenedSinceSync = 0
+            }
+            streamingListenedSinceSync += elapsed
+        } else {
+            recordLocalListening(seconds: elapsed, playerService: playerService, at: now)
+        }
+    }
+
+    /// Listening time to report for `sessionId` in the next sync.
+    private func unsyncedListeningTime(for sessionId: String) -> TimeInterval {
+        sessionId == streamingListenSessionId ? streamingListenedSinceSync : 0
+    }
+
+    /// Deducts time the server has acknowledged, keeping anything recorded while the sync was in flight.
+    private func markListeningTimeSynced(_ seconds: TimeInterval, for sessionId: String) {
+        guard sessionId == streamingListenSessionId else { return }
+        streamingListenedSinceSync = max(0, streamingListenedSinceSync - seconds)
     }
 
     // MARK: - Offline Listening Sessions
@@ -110,23 +151,17 @@ final class ProgressService {
                 deviceInfo: deviceInfo
             )
         )
-        lastListenTick = Date()
     }
 
-    /// Credits wall-clock time since the last tick to the offline session while audio is playing,
-    /// and persists the session so it survives the app being killed before it's uploaded.
+    /// Credits listening time to the offline session and persists it so it survives the app being
+    /// killed before it's uploaded.
     @MainActor
-    private func recordLocalListening(playerService: AudioPlayerService) {
-        let now = Date()
-        defer { lastListenTick = now }
-
+    private func recordLocalListening(seconds: TimeInterval, playerService: AudioPlayerService, at now: Date) {
         guard var pending = activeLocalSession,
-              let last = lastListenTick,
-              playerService.isPlaying,
               playerService.currentBook?.id == pending.bookId else { return }
 
         pending.session.recordListening(
-            seconds: now.timeIntervalSince(last),
+            seconds: seconds,
             currentTime: playerService.currentTime,
             at: now
         )
@@ -214,24 +249,25 @@ final class ProgressService {
     @MainActor
     func syncToServer(playerService: AudioPlayerService, modelContext: ModelContext) async {
         guard let book = playerService.currentBook,
-              let progress = book.progress,
-              let sessionId = progress.activeSessionId,
-              let serverId = progress.activeSessionServerId else { return }
+              let sessionId = playerService.sessionId,
+              let serverId = playerService.sessionServerId else { return }
 
         guard let client = buildClient(for: serverId, modelContext: modelContext) else { return }
 
         // Capture values before await to avoid stale SwiftData references
         let currentTime = playerService.currentTime
         let duration = playerService.duration
+        let listened = unsyncedListeningTime(for: sessionId)
 
         let syncRequest = SessionSyncRequest(
             currentTime: currentTime,
-            timeListened: 60,
+            timeListened: listened,
             duration: duration
         )
 
         do {
             try await client.syncSession(sessionId: sessionId, body: syncRequest)
+            markListeningTimeSynced(listened, for: sessionId)
 
             // If the book is finished, also update progress via the dedicated endpoint
             // so the server records the isFinished flag (SessionSyncRequest doesn't carry it).
@@ -269,41 +305,48 @@ final class ProgressService {
         saveLocalProgress(playerService: playerService, modelContext: modelContext)
 
         guard let book = playerService.currentBook,
-              let progress = book.progress,
-              let sessionId = progress.activeSessionId,
-              let serverId = progress.activeSessionServerId else { return }
+              let sessionId = playerService.sessionId,
+              let serverId = playerService.sessionServerId else { return }
 
         guard let client = buildClient(for: serverId, modelContext: modelContext) else { return }
 
+        // Capture values before await — the player may move on to another book meanwhile
+        let currentTime = playerService.currentTime
+        let duration = playerService.duration
+        let listened = unsyncedListeningTime(for: sessionId)
+
         // Final sync
         let syncRequest = SessionSyncRequest(
-            currentTime: playerService.currentTime,
-            timeListened: 0,
-            duration: playerService.duration
+            currentTime: currentTime,
+            timeListened: listened,
+            duration: duration
         )
 
         do {
             try await client.syncSession(sessionId: sessionId, body: syncRequest)
+            markListeningTimeSynced(listened, for: sessionId)
             try await client.closeSession(sessionId: sessionId)
 
             // Send isFinished to the server via the progress endpoint
-            if progress.isFinished, let mapping = book.preferredMapping {
+            if let progress = book.progress, progress.isFinished, let mapping = book.preferredMapping {
                 let update = ProgressUpdateRequest(
                     progress: progress.progress,
-                    currentTime: playerService.currentTime,
-                    duration: playerService.duration,
+                    currentTime: currentTime,
+                    duration: duration,
                     isFinished: true
                 )
                 try? await client.updateProgress(libraryItemId: mapping.libraryItemId, progress: update)
             }
 
-            progress.activeSessionId = nil
-            progress.activeSessionServerId = nil
-            progress.needsSync = false
+            if let progress = book.progress {
+                progress.activeSessionId = nil
+                progress.activeSessionServerId = nil
+                progress.needsSync = false
+            }
             try? modelContext.save()
         } catch {
             // Mark for later sync if the close fails
-            progress.needsSync = true
+            book.progress?.needsSync = true
             try? modelContext.save()
         }
     }

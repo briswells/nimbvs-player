@@ -31,6 +31,8 @@ struct MainTabView: View {
 
     @State private var showNowPlaying = false
     @Environment(AudioPlayerService.self) private var playerService
+    @Environment(ProgressService.self) private var progressService
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -68,13 +70,14 @@ struct MainTabView: View {
         .onChange(of: playerService.didFinishBook) { _, finished in
             guard finished else { return }
             // Dismiss the full-screen player first, then clean up after it animates out
-            if showNowPlaying {
-                showNowPlaying = false
-                Task {
+            let wasShowingNowPlaying = showNowPlaying
+            showNowPlaying = false
+            Task {
+                // Close the server session while the player still knows which session it is
+                await progressService.closeSession(playerService: playerService, modelContext: modelContext)
+                if wasShowingNowPlaying {
                     try? await Task.sleep(for: .seconds(0.5))
-                    playerService.stop()
                 }
-            } else {
                 playerService.stop()
             }
         }
