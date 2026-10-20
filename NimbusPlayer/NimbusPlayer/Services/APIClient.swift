@@ -396,18 +396,33 @@ final class APIClient {
         page: Int = 0,
         itemsPerPage: Int = 25
     ) async throws -> ListeningSessionsPage {
-        var query: [URLQueryItem] = [
+        let query: [URLQueryItem] = [
             URLQueryItem(name: "page", value: "\(page)"),
             URLQueryItem(name: "itemsPerPage", value: "\(itemsPerPage)")
         ]
-        if let itemId {
-            query.append(URLQueryItem(name: "libraryItemId", value: itemId))
-        }
         return try await request(
             ListeningSessionsPage.self,
             method: "GET",
-            path: "/api/me/listening-sessions",
+            path: Self.listeningSessionsPath(itemId: itemId),
             query: query
+        )
+    }
+
+    /// Path for the current user's listening sessions, optionally limited to one library item.
+    ///
+    /// `/api/me/listening-sessions` doesn't accept an item filter (a `libraryItemId` query is
+    /// ignored), so per-item history uses the dedicated route.
+    static func listeningSessionsPath(itemId: String?) -> String {
+        guard let itemId else { return "/api/me/listening-sessions" }
+        return "/api/me/item/listening-sessions/\(itemId)"
+    }
+
+    /// Creates or updates a listening session for playback from downloaded files.
+    func syncLocalSession(_ session: LocalPlaybackSession) async throws {
+        try await requestVoid(
+            method: "POST",
+            path: "/api/session/local",
+            body: session
         )
     }
 

@@ -217,7 +217,7 @@ struct ListeningHistoryView: View {
         let result = await service.fetchPage(
             page: 0,
             filter: filter,
-            currentSessionId: playerService.sessionId,
+            currentSessionId: playerService.sessionId ?? progressService.activeLocalSessionId,
             servers: servers,
             serverService: serverService
         )
@@ -234,7 +234,7 @@ struct ListeningHistoryView: View {
         let result = await service.fetchPage(
             page: nextPage,
             filter: filter,
-            currentSessionId: playerService.sessionId,
+            currentSessionId: playerService.sessionId ?? progressService.activeLocalSessionId,
             servers: servers,
             serverService: serverService
         )

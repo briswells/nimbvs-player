@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import UIKit
 
 // MARK: - ProgressService
 
@@ -20,6 +21,14 @@ final class ProgressService {
     var completionThresholdMode: CompletionThresholdMode = .percentage
     var completionThresholdSeconds: Int = 300
 
+    /// Listening session for the current offline (downloaded-file) playback, if any.
+    @ObservationIgnored private var activeLocalSession: PendingLocalSession?
+    @ObservationIgnored private var lastListenTick: Date?
+    @ObservationIgnored private let localSessionStore = LocalSessionStore()
+
+    /// Id of the in-progress offline listening session, so history can hide it like a live one.
+    var activeLocalSessionId: String? { activeLocalSession?.session.id }
+
     // MARK: - Tracking Lifecycle
 
     /// Starts periodic progress tracking.
@@ -37,10 +46,15 @@ final class ProgressService {
         self.completionThresholdSeconds = appState.completionThresholdSeconds
         stopTracking()
 
+        if playerService.isOffline {
+            beginLocalSession(playerService: playerService)
+        }
+
         localSaveTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             guard let self else { return }
             // Defer to next run loop iteration to avoid colliding with SwiftUI renders
             Task { @MainActor in
+                self.recordLocalListening(playerService: playerService)
                 self.saveLocalProgress(playerService: playerService, modelContext: modelContext)
             }
         }
@@ -49,16 +63,97 @@ final class ProgressService {
             guard let self else { return }
             Task { @MainActor in
                 await self.syncToServer(playerService: playerService, modelContext: modelContext)
+                await self.syncPendingLocalSessions(modelContext: modelContext)
             }
         }
     }
 
-    /// Stops both the local save and server sync timers.
+    /// Stops both the local save and server sync timers, and ends any offline listening session.
+    /// The ended session stays queued on disk until it has been uploaded.
     func stopTracking() {
         localSaveTimer?.invalidate()
         localSaveTimer = nil
         syncTimer?.invalidate()
         syncTimer = nil
+        activeLocalSession = nil
+        lastListenTick = nil
+    }
+
+    // MARK: - Offline Listening Sessions
+
+    /// Starts a local listening session for offline playback of the player's current book.
+    ///
+    /// Attributed to the book's preferred server mapping (or any mapping with a server); books with
+    /// no server mapping can't be reported and are skipped.
+    private func beginLocalSession(playerService: AudioPlayerService) {
+        guard let book = playerService.currentBook,
+              let mapping = book.preferredMapping?.server != nil
+                ? book.preferredMapping
+                : book.serverMappings.first(where: { $0.server != nil }),
+              let serverId = mapping.server?.id else { return }
+
+        let deviceInfo = PlaybackSessionRequest.defaultRequest(
+            deviceId: UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString,
+            appVersion: "1.0"
+        ).deviceInfo
+
+        activeLocalSession = PendingLocalSession(
+            serverId: serverId,
+            bookId: book.id,
+            session: LocalPlaybackSession(
+                libraryItemId: mapping.libraryItemId,
+                displayTitle: book.title,
+                displayAuthor: book.author,
+                duration: playerService.duration,
+                startTime: playerService.currentTime,
+                startedAt: Date(),
+                deviceInfo: deviceInfo
+            )
+        )
+        lastListenTick = Date()
+    }
+
+    /// Credits wall-clock time since the last tick to the offline session while audio is playing,
+    /// and persists the session so it survives the app being killed before it's uploaded.
+    @MainActor
+    private func recordLocalListening(playerService: AudioPlayerService) {
+        let now = Date()
+        defer { lastListenTick = now }
+
+        guard var pending = activeLocalSession,
+              let last = lastListenTick,
+              playerService.isPlaying,
+              playerService.currentBook?.id == pending.bookId else { return }
+
+        pending.session.recordListening(
+            seconds: now.timeIntervalSince(last),
+            currentTime: playerService.currentTime,
+            at: now
+        )
+        activeLocalSession = pending
+        localSessionStore.upsert(pending)
+    }
+
+    /// Uploads queued offline listening sessions to their servers.
+    ///
+    /// Sessions that upload successfully are dropped from the queue unless they're still in
+    /// progress or changed while the upload was in flight; those are re-sent on the next pass,
+    /// which updates the same session on the server.
+    @MainActor
+    func syncPendingLocalSessions(modelContext: ModelContext) async {
+        for pending in localSessionStore.load() {
+            guard let client = buildClient(for: pending.serverId, modelContext: modelContext) else { continue }
+            do {
+                try await client.syncLocalSession(pending.session)
+            } catch APIError.httpError(let statusCode, _) where (400..<500).contains(statusCode) {
+                // The server rejected this session outright; retrying won't help.
+            } catch {
+                continue
+            }
+            if pending.session.id != activeLocalSession?.session.id {
+                localSessionStore.remove(pending)
+            }
+        }
     }
 
     // MARK: - Local Save
@@ -421,6 +516,8 @@ final class ProgressService {
     ///   - modelContext: The SwiftData context used for querying and persistence.
     ///   - serverService: Service providing API clients for each server.
     func flushPendingSyncs(modelContext: ModelContext, serverService: ServerService) async {
+        await syncPendingLocalSessions(modelContext: modelContext)
+
         let descriptor = FetchDescriptor<ListeningProgress>(
             predicate: #Predicate<ListeningProgress> { $0.needsSync == true }
         )
@@ -528,5 +625,57 @@ final class ProgressService {
               let baseURL = server.baseURL else { return nil }
 
         return APIClient(baseURL: baseURL, token: token, serverId: serverId)
+    }
+}
+
+// MARK: - Pending Local Sessions
+
+/// An offline listening session plus what's needed to upload it later.
+struct PendingLocalSession: Codable, Equatable {
+    let serverId: UUID
+    let bookId: UUID
+    var session: LocalPlaybackSession
+}
+
+/// File-backed queue of offline listening sessions awaiting upload.
+///
+/// Stored as JSON in Application Support so sessions survive relaunches and long offline spells.
+struct LocalSessionStore {
+    let fileURL: URL
+
+    init(fileURL: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("PendingLocalSessions.json")) {
+        self.fileURL = fileURL
+    }
+
+    func load() -> [PendingLocalSession] {
+        guard let data = try? Data(contentsOf: fileURL) else { return [] }
+        return (try? JSONDecoder().decode([PendingLocalSession].self, from: data)) ?? []
+    }
+
+    /// Inserts the session, or replaces the queued copy with the same id.
+    func upsert(_ pending: PendingLocalSession) {
+        var all = load()
+        if let index = all.firstIndex(where: { $0.session.id == pending.session.id }) {
+            all[index] = pending
+        } else {
+            all.append(pending)
+        }
+        save(all)
+    }
+
+    /// Removes the queued session only if it's unchanged from `pending`, so time recorded after
+    /// `pending` was read isn't lost.
+    func remove(_ pending: PendingLocalSession) {
+        save(load().filter { $0 != pending })
+    }
+
+    private func save(_ all: [PendingLocalSession]) {
+        try? FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        guard let data = try? JSONEncoder().encode(all) else { return }
+        try? data.write(to: fileURL, options: .atomic)
     }
 }
