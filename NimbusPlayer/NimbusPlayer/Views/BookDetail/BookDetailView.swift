@@ -338,7 +338,7 @@ struct BookDetailView: View {
 
     @ViewBuilder
     private var descriptionSection: some View {
-        if let description = book.bookDescription, !description.isEmpty {
+        if let description = book.plainDescription {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Description")
                     .font(.headline)
